@@ -45,30 +45,31 @@ Phase 1(AX-only Stage)を着手順に並べたバックログ。上から順に�
 - [x] 許可後の再チェック(許可されるまで 2 秒間隔でポーリングし、メニュー表示を更新)
 - 備考: ChromeStage.app への権限付与(システム設定での手動操作)が済んでからタスク 5 以降の動作確認が可能になる
 
-### 5. Chrome ウィンドウ検出(WindowDiscoveryService)
+### 5. Chrome ウィンドウ検出(WindowDiscoveryService)✅
 
-- [ ] `CGWindowListCopyWindowInfo` + bundle id フィルタで Chrome の通常ウィンドウを列挙
-- [ ] タイトル・位置・サイズ・windowId・pid の取得
-- [ ] popup / DevTools / fullscreen の除外
+- [x] `CGWindowListCopyWindowInfo` + bundle id フィルタで Chrome の通常ウィンドウを列挙
+- [x] 位置・サイズ・windowId・pid の取得(タイトルは Screen Recording 権限が必要なため使わない方針に変更)
+- [x] popup / DevTools の除外(AX subrole = AXStandardWindow で判定。fullscreen は Stage 対象外の運用)
 
-### 6. AX ウィンドウ操作(AXWindowController)
+### 6. AX ウィンドウ操作(AXWindow)✅
 
-- [ ] pid → `AXUIElementCreateApplication` → ウィンドウ一覧取得
-- [ ] CGWindow 情報と AX ウィンドウの照合
-- [ ] 位置・サイズの読み書き、raise、focus
-- [ ] 失敗時リトライと、操作後の読み直し検証
+- [x] pid → `AXUIElementCreateApplication` → ウィンドウ一覧取得
+- [x] CGWindow 情報と AX ウィンドウの照合(ジオメトリ照合。タイトル非依存)
+- [x] 位置・サイズの読み書き、raise、focus
+- [x] 失敗時リトライと、操作後の読み直し検証
 
-### 7. Slot 管理と永続化(StageSessionStore)
+### 7. Slot 管理と永続化(StageSessionStore)✅
 
-- [ ] Slot の手動追加(現在の Chrome ウィンドウを slot 化)・名前設定・削除
-- [ ] StageSession / ChromeSlotRecord の JSON 永続化(parking rect 含む)
-- [ ] 起動時のセッション読み込みとウィンドウ再照合
+- [x] Slot の手動追加(最前面の Chrome ウィンドウを slot 化)・名前設定・削除
+- [x] StageSession / ChromeSlotRecord の JSON 永続化(`~/Library/Application Support/ChromeStage/session.json`)
+- [x] 起動時のセッション読み込みとウィンドウ再照合(照合失敗は missing 扱い)
 
-### 8. 切り替え処理と offscreen parking
+### 8. 切り替え処理と offscreen parking ✅
 
-- [ ] switchTo: 現 slot を park → ターゲットを stage rect へ復帰 → focus
-- [ ] スパイク結果に基づく退避座標の算出
-- [ ] `Unpark All`(メニューバーから実行)
+- [x] switchTo: ターゲット以外を park → ターゲットを stage rect へ復帰 → focus
+- [x] スパイク結果に基づく退避座標の算出(右端ディスプレイの `maxX - 1`、1px 残し)
+- [x] `Unpark All`(メニューバーから実行。アプリ終了時にも自動実行)
+- 備考: `--selftest` モード(検出 → AX 照合 → park → 復帰 → 永続化)で全項目 PASS を確認。メニュー操作での切り替え体験の確認はタスク 12 で行う
 
 ### 9. Overlay UI(フローティングパレット)
 
