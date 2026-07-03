@@ -71,23 +71,25 @@ Phase 1(AX-only Stage)を着手順に並べたバックログ。上から順に�
 - [x] `Unpark All`(メニューバーから実行。アプリ終了時にも自動実行)
 - 備考: `--selftest` モード(検出 → AX 照合 → park → 復帰 → 永続化)で全項目 PASS を確認。メニュー操作での切り替え体験の確認はタスク 12 で行う
 
-### 9. Overlay UI(フローティングパレット)
+### 9. Overlay UI(フローティングパレット)✅
 
-- [ ] NSPanel(non-activating)+ SwiftUI で slot 一覧表示
-- [ ] active slot の強調、クリックで切り替え
-- [ ] 切り替え後に Chrome へ focus を戻す
+- [x] NSPanel(non-activating, floating)+ SwiftUI で slot 一覧表示
+- [x] active slot の強調(ハイライト + 緑ドット)、クリックで切り替え
+- [x] 切り替え後に Chrome へ focus を戻す(switchTo 内で前面化)
+- 備考: 位置はドラッグ可能で記憶される。メニューから表示/非表示を切り替え可能
 
-### 10. ホットキー(HotKeyController)
+### 10. ホットキー(HotKeyController)✅
 
-- [ ] 決定事項のホットキー(仮)で実装し、Chrome・macOS 標準との衝突を実機確認
-- [ ] next / previous / direct 1〜9 / unpark all
+- [x] 決定事項のホットキーで実装(Ctrl+Option+Tab / Shift+Tab / 1〜9 / U)。12 件の登録成功をログで確認
+- [x] next / previous / direct 1〜9 / unpark all
+- [ ] Chrome・macOS 標準との衝突の実機確認(タスク 12 で実施)
 
-### 11. 終了処理・復旧(RecoveryController)
+### 11. 終了処理・復旧(RecoveryController 相当)✅
 
-- [ ] アプリ終了時に全 parked ウィンドウを復帰
-- [ ] 起動時に前回 parking したウィンドウを検出して復帰(クラッシュ復旧)
-- [ ] ディスプレイ構成変更の検出 → parking rect 再計算 or 自動 Unpark
-- [ ] Chrome 終了検出 → slot を missing/closed へ
+- [x] アプリ終了時に全 parked ウィンドウを復帰(applicationWillTerminate)
+- [x] 起動時に前回 parking したウィンドウを検出して復帰(クラッシュ復旧。SIGTERM 終了後の再起動で parked 2 件の自動復帰を実地確認済み)
+- [x] ディスプレイ構成変更の検出 → 退避座標の再計算、stage rect が画面外ならリセット
+- [x] Chrome 終了検出 → 全 slot を missing へ
 
 ### 12. 受け入れ条件の検証
 
