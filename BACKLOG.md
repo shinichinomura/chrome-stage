@@ -26,22 +26,24 @@ Phase 1(AX-only Stage)を着手順に並べたバックログ。上から順に�
 - [x] 結果を `spikes/offscreen-parking/RESULT.md` に記録
 - 結論: **「1px だけ画面内に残す」方式で成立**(完全画面外はクランプされる)。退避座標はウィンドウ幅とディスプレイ frame から動的に算出する
 
-### 2. リポジトリ準備
+### 2. リポジトリ準備 ✅
 
-- [ ] `.gitignore`(Xcode / Swift / macOS)
-- [ ] Accessibility 権限を安定させる署名設定の確認(Apple Development 証明書で一貫署名)
+- [x] `.gitignore`(Xcode / Swift / macOS)
+- [x] Accessibility 権限を安定させる署名設定の確認(Apple Development 証明書で一貫署名。Team ID: 2B4YHY8VXE、自動署名でビルド確認済み)
 
-### 3. Xcode プロジェクト作成(`app/`)
+### 3. Xcode プロジェクト作成(`app/`)✅
 
-- [ ] メニューバー常駐アプリの骨組み(LSUIElement)
-- [ ] メニューバーに最低限のメニュー(Quit / Unpark All のプレースホルダ)
-- [ ] OSLog によるログ基盤
+- [x] メニューバー常駐アプリの骨組み(LSUIElement)
+- [x] メニューバーに最低限のメニュー(Quit / Unpark All のプレースホルダ)
+- [x] OSLog によるログ基盤
+- 備考: `xcodebuild -project app/ChromeStage.xcodeproj -scheme ChromeStage build` でビルド。起動・OSLog 出力を実機確認済み
 
-### 4. Accessibility 権限チェック
+### 4. Accessibility 権限チェック ✅
 
-- [ ] 権限状態の確認(`AXIsProcessTrusted`)
-- [ ] 未許可時の案内 UI(システム設定へ誘導)
-- [ ] 許可後の再チェック
+- [x] 権限状態の確認(`AXIsProcessTrusted`)
+- [x] 未許可時の案内 UI(システムダイアログ + メニューからシステム設定を開く)
+- [x] 許可後の再チェック(許可されるまで 2 秒間隔でポーリングし、メニュー表示を更新)
+- 備考: ChromeStage.app への権限付与(システム設定での手動操作)が済んでからタスク 5 以降の動作確認が可能になる
 
 ### 5. Chrome ウィンドウ検出(WindowDiscoveryService)
 
