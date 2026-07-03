@@ -18,13 +18,13 @@ Phase 1(AX-only Stage)を着手順に並べたバックログ。上から順に�
 
 ## タスク
 
-### 1. スパイク: offscreen parking の成立検証
+### 1. スパイク: offscreen parking の成立検証 ✅
 
-- [ ] `spikes/offscreen-parking/` に検証スクリプトを作成
-- [ ] AX API で Chrome ウィンドウを画面外座標へ移動 → 座標を読み直し → 元に戻す
-- [ ] macOS によるクランプ(位置補正)の有無と、成立する退避座標のパターンを記録
-- [ ] 結果を `spikes/offscreen-parking/RESULT.md` に記録
-- 不成立の場合: 退避座標の工夫 or Minimize parking への方針転換を判断してから次へ進む
+- [x] `spikes/offscreen-parking/` に検証スクリプトを作成
+- [x] AX API で Chrome ウィンドウを画面外座標へ移動 → 座標を読み直し → 元に戻す
+- [x] macOS によるクランプ(位置補正)の有無と、成立する退避座標のパターンを記録
+- [x] 結果を `spikes/offscreen-parking/RESULT.md` に記録
+- 結論: **「1px だけ画面内に残す」方式で成立**(完全画面外はクランプされる)。退避座標はウィンドウ幅とディスプレイ frame から動的に算出する
 
 ### 2. リポジトリ準備
 
