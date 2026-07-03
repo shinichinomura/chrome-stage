@@ -3,6 +3,8 @@
 Phase 1(AX-only Stage)を着手順に並べたバックログ。上から順に進める。
 完了条件は [chrome-stage-initial-design.md](chrome-stage-initial-design.md) の「31. MVP受け入れ条件」を正とする。
 
+**ステータス: 全タスク完了(2026-07-03)。受け入れ条件はユーザー確認済み。しばらく日常利用して問題がなければ Phase 2(Profile Registry)へ進む。**
+
 ## 決定事項
 
 | 項目 | 決定 |
@@ -82,7 +84,7 @@ Phase 1(AX-only Stage)を着手順に並べたバックログ。上から順に�
 
 - [x] 決定事項のホットキーで実装(Ctrl+Option+Tab / Shift+Tab / 1〜9 / U)。12 件の登録成功をログで確認
 - [x] next / previous / direct 1〜9 / unpark all
-- [ ] Chrome・macOS 標準との衝突の実機確認(タスク 12 で実施)
+- [x] Chrome・macOS 標準との衝突の実機確認(問題なし)
 
 ### 11. 終了処理・復旧(RecoveryController 相当)✅
 
@@ -91,6 +93,7 @@ Phase 1(AX-only Stage)を着手順に並べたバックログ。上から順に�
 - [x] ディスプレイ構成変更の検出 → 退避座標の再計算、stage rect が画面外ならリセット
 - [x] Chrome 終了検出 → 全 slot を missing へ
 
-### 12. 受け入れ条件の検証
+### 12. 受け入れ条件の検証 ✅
 
-- [ ] 設計メモ「31. MVP受け入れ条件」を 1 項目ずつ実機確認し、結果を記録
+- [x] 設計メモ「31. MVP受け入れ条件」を実機確認(2026-07-03、ユーザー確認で全項目 OK)
+- 補足: Overlay パレットは macOS 26 の Liquid Glass テーマ(NSGlassEffectView)に変更済み
