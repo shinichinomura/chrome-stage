@@ -21,6 +21,8 @@ struct SlotChipItem: Identifiable {
 struct SlotChipView: View {
     let item: SlotChipItem
     let onSelect: () -> Void
+    // 空(missing)チップの右クリックから、最前面ウィンドウをこの Slot に割り当てる
+    let onAssignFrontmost: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -31,6 +33,21 @@ struct SlotChipView: View {
     }
 
     var body: some View {
+        // missing チップは右クリックで割り当てできるようにするため、
+        // hit test を潰す .disabled は付けず、左クリックのみ無効化する(onSelect 側で判定)
+        if item.state == .missing {
+            chipButton.contextMenu {
+                Button(action: onAssignFrontmost) {
+                    Label("最前面の Chrome ウィンドウをこの Slot に割り当てる",
+                          systemImage: "plus.rectangle.on.rectangle")
+                }
+            }
+        } else {
+            chipButton
+        }
+    }
+
+    private var chipButton: some View {
         Button(action: onSelect) {
             // アクティブ: 濃いアクセントカラーのガラスと文字色で区別する
             HStack(spacing: 5) {
@@ -53,7 +70,6 @@ struct SlotChipView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(item.state == .missing)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
     }
@@ -150,9 +166,17 @@ final class OverlayPanelController {
                 .padding(.horizontal, 10).padding(.vertical, 5))
         } else {
             for item in items {
-                let chip = addChip(content: SlotChipView(item: item) { [weak self] in
-                    self?.stage.switchTo(id: item.id)
-                })
+                let chip = addChip(content: SlotChipView(
+                    item: item,
+                    onSelect: { [weak self] in
+                        // missing チップの左クリックは無効(右クリックで割り当てのみ受け付ける)
+                        guard item.state != .missing else { return }
+                        self?.stage.switchTo(id: item.id)
+                    },
+                    onAssignFrontmost: { [weak self] in
+                        self?.assignFrontmost(toSlotID: item.id)
+                    }
+                ))
                 if item.isActive {
                     // 完全不透明のアクセントカラー + 白文字。
                     // 半透明だとライトテーマで背景が透けてコントラストが不足する
@@ -181,5 +205,32 @@ final class OverlayPanelController {
 
     private func resizeToFit() {
         panel.setContentSize(stack.fittingSize)
+    }
+
+    // MARK: - 空スロットへの割り当て
+
+    private func assignFrontmost(toSlotID id: UUID) {
+        switch stage.assignFrontmostWindow(toSlotID: id) {
+        case .success, .slotNotFound:
+            // 成功時は stageDidChange で再描画される。slotNotFound は再描画レースのみ
+            break
+        case .noChromeWindow:
+            showAlert("Chrome のウィンドウが見つかりません",
+                      "割り当てたい Chrome の通常ウィンドウを最前面にしてから、もう一度お試しください。")
+        case .alreadyRegistered:
+            showAlert("既に別の Slot に登録されています",
+                      "最前面の Chrome ウィンドウは別の Slot が使用中です。割り当てたいウィンドウを最前面にしてからお試しください。")
+        case .axMatchFailed:
+            showAlert("割り当てに失敗しました",
+                      "ウィンドウの照合に失敗しました。もう一度お試しください。")
+        }
+    }
+
+    private func showAlert(_ message: String, _ detail: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.runModal()
     }
 }

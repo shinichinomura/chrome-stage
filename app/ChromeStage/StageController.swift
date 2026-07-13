@@ -102,6 +102,53 @@ final class StageController {
         Log.stage.info("Slot 削除: \(id, privacy: .public)")
     }
 
+    // MARK: - 既存 Slot へのウィンドウ再割り当て
+
+    // assignFrontmostWindow の結果。UI 側でメッセージ表示に使う
+    enum AssignResult {
+        case success
+        case slotNotFound
+        case noChromeWindow
+        case alreadyRegistered
+        case axMatchFailed
+    }
+
+    // 原因不明でウィンドウが外れて missing になった Slot に、最前面の Chrome
+    // ウィンドウを手動で割り当て直す(空スロットの右クリックから呼ばれる)。
+    // Overlay は non-activating パネルのため、この呼び出し時点でも Chrome の
+    // 最前面ウィンドウはユーザーが割り当てたいウィンドウのまま変わらない。
+    @discardableResult
+    func assignFrontmostWindow(toSlotID id: UUID) -> AssignResult {
+        guard let slot = slots.first(where: { $0.record.id == id }) else { return .slotNotFound }
+        guard let info = WindowDiscoveryService.frontmostChromeWindow() else { return .noChromeWindow }
+
+        // 既に別の(生きている)Slot が掴んでいるウィンドウは奪わない。
+        // 奪うと元の Slot のウィンドウが管理外になり、画面外へ取り残される恐れがある
+        if slots.contains(where: {
+            $0.record.id != id && $0.record.macWindowID == info.windowID && $0.record.state != .missing
+        }) {
+            return .alreadyRegistered
+        }
+
+        guard let ax = AXWindow.match(info: info) else {
+            Log.stage.error("Slot 割り当て失敗: AX 照合できない(windowID \(info.windowID))")
+            return .axMatchFailed
+        }
+
+        slot.axWindow = ax
+        slot.record.macWindowID = info.windowID
+        slot.record.pid = Int32(info.pid)
+        slot.record.lastVisibleRect = CodableRect(info.bounds)
+        slot.record.state = .visible
+        slot.record.updatedAt = Date()
+        save()
+        Log.stage.info("Slot 割り当て: \(id, privacy: .public) ← windowID \(info.windowID)")
+
+        // 割り当てたウィンドウをそのままステージのアクティブにする(他は退避)
+        switchTo(id: id)
+        return .success
+    }
+
     // MARK: - 切り替え
 
     func switchTo(id: UUID) {
