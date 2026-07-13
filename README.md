@@ -152,3 +152,7 @@ chrome-stage-initial-design.md   Full design notes (in Japanese)
 ## Design document
 
 The complete design rationale — background, alternatives considered, architecture, edge cases, and phased plan — lives in [chrome-stage-initial-design.md](chrome-stage-initial-design.md) (written in Japanese).
+
+## License
+
+Released under the [MIT License](LICENSE).
