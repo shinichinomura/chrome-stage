@@ -7,6 +7,11 @@ import SwiftUI
 //
 // SwiftUI の glassEffect は non-activating パネルでは非アクティブ扱いになり
 // フラットに描画されるため、ガラスは AppKit 側で描く。
+//
+// チップの操作(クリック切り替え・ドラッグ並び替え・右クリック割り当て)は
+// すべて AppKit 側(ChipView + ジェスチャ)で処理する。SwiftUI は表示専用にし、
+// isMovableByWindowBackground によるパネル移動や SwiftUI/AppKit のイベント
+// 競合と切り離すことで、クリックとドラッグの判別を確定的にする。
 
 // MARK: - チップの表示内容
 
@@ -18,11 +23,9 @@ struct SlotChipItem: Identifiable {
     let isActive: Bool
 }
 
-struct SlotChipView: View {
+// チップの見た目のみを担う表示専用ビュー(操作は ChipView が受け持つ)
+struct SlotChipContent: View {
     let item: SlotChipItem
-    let onSelect: () -> Void
-    // 空(missing)チップの右クリックから、最前面ウィンドウをこの Slot に割り当てる
-    let onAssignFrontmost: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -33,45 +36,46 @@ struct SlotChipView: View {
     }
 
     var body: some View {
-        // missing チップは右クリックで割り当てできるようにするため、
-        // hit test を潰す .disabled は付けず、左クリックのみ無効化する(onSelect 側で判定)
-        if item.state == .missing {
-            chipButton.contextMenu {
-                Button(action: onAssignFrontmost) {
-                    Label("最前面の Chrome ウィンドウをこの Slot に割り当てる",
-                          systemImage: "plus.rectangle.on.rectangle")
-                }
+        HStack(spacing: 5) {
+            Text("\(item.index)")
+                .monospacedDigit()
+                .foregroundStyle(item.isActive ? activeTextColor.opacity(0.85) : Color.secondary)
+            Text(item.name)
+                .foregroundStyle(
+                    item.isActive ? activeTextColor
+                    : item.state == .missing ? Color.secondary
+                    : Color.primary
+                )
+                .lineLimit(1)
+            if item.state == .missing {
+                Image(systemName: "questionmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-        } else {
-            chipButton
         }
-    }
-
-    private var chipButton: some View {
-        Button(action: onSelect) {
-            // アクティブ: 濃いアクセントカラーのガラスと文字色で区別する
-            HStack(spacing: 5) {
-                Text("\(item.index)")
-                    .monospacedDigit()
-                    .foregroundStyle(item.isActive ? activeTextColor.opacity(0.85) : Color.secondary)
-                Text(item.name)
-                    .foregroundStyle(
-                        item.isActive ? activeTextColor
-                        : item.state == .missing ? Color.secondary
-                        : Color.primary
-                    )
-                    .lineLimit(1)
-                if item.state == .missing {
-                    Image(systemName: "questionmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
+        // イベントは AppKit 側(ChipView.hitTest)で受け取るため無効化する
+        .allowsHitTesting(false)
+    }
+}
+
+// MARK: - チップの操作を受け持つガラスビュー
+
+// カプセル内のクリック/ドラッグ/右クリックをすべて自身で受け取る。
+// 内部の SwiftUI ホストビューにはイベントを渡さないよう hitTest を固定し、
+// パネル背景移動(isMovableByWindowBackground)にも奪われないようにする。
+final class ChipView: NSGlassEffectView {
+    var slotID: UUID?
+    var isMissing = false
+
+    // このカプセル上でのドラッグはパネル移動ではなく並び替えに使う
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    // カプセル全体でイベントを受けるため、内部ビューには hit を渡さない
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else { return nil }
+        return bounds.contains(convert(point, from: superview)) ? self : nil
     }
 }
 
@@ -82,6 +86,9 @@ final class OverlayPanelController {
     private let stage: StageController
     private let stack = NSStackView()
     private var observer: NSObjectProtocol?
+
+    // ドラッグ並び替え中のチップ
+    private var draggingChip: ChipView?
 
     init(stage: StageController) {
         self.stage = stage
@@ -158,56 +165,157 @@ final class OverlayPanelController {
     }
 
     private func rebuildChips() {
+        // ドラッグ中の再構築は状態(draggingChip)を壊すため中断する。
+        // ドロップ確定時の再描画は draggingChip が nil に戻ってから届く
+        guard draggingChip == nil else { return }
+
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         let items = currentItems()
         if items.isEmpty {
-            addChip(content: Text("Slot 未登録").foregroundStyle(.secondary)
-                .padding(.horizontal, 10).padding(.vertical, 5))
+            addPlaceholder()
         } else {
             for item in items {
-                let chip = addChip(content: SlotChipView(
-                    item: item,
-                    onSelect: { [weak self] in
-                        // missing チップの左クリックは無効(右クリックで割り当てのみ受け付ける)
-                        guard item.state != .missing else { return }
-                        self?.stage.switchTo(id: item.id)
-                    },
-                    onAssignFrontmost: { [weak self] in
-                        self?.assignFrontmost(toSlotID: item.id)
-                    }
-                ))
-                if item.isActive {
-                    // 完全不透明のアクセントカラー + 白文字。
-                    // 半透明だとライトテーマで背景が透けてコントラストが不足する
-                    chip.tintColor = .controlAccentColor
-                }
+                stack.addArrangedSubview(makeChip(item: item))
             }
         }
         resizeToFit()
     }
 
-    @discardableResult
-    private func addChip(content: some View) -> NSGlassEffectView {
-        let hosting = NSHostingView(rootView: AnyView(content))
+    // slot チップ(操作可能)を生成する
+    private func makeChip(item: SlotChipItem) -> ChipView {
+        let hosting = NSHostingView(rootView: SlotChipContent(item: item))
         let size = hosting.fittingSize
 
-        let chip = NSGlassEffectView()
+        let chip = ChipView()
+        chip.wantsLayer = true
+        chip.slotID = item.id
+        chip.isMissing = item.state == .missing
         chip.contentView = hosting
         chip.cornerRadius = size.height / 2 // カプセル形
         chip.translatesAutoresizingMaskIntoConstraints = false
         chip.widthAnchor.constraint(equalToConstant: size.width).isActive = true
         chip.heightAnchor.constraint(equalToConstant: size.height).isActive = true
 
-        stack.addArrangedSubview(chip)
+        if item.isActive {
+            // 完全不透明のアクセントカラー + 白/黒文字。
+            // 半透明だとライトテーマで背景が透けてコントラストが不足する
+            chip.tintColor = .controlAccentColor
+        }
+
+        // 左クリック: 切り替え(missing は無効)
+        let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick(_:)))
+        chip.addGestureRecognizer(click)
+        // ドラッグ: 並び替え。クリックとはジェスチャ側で自動的に判別される
+        // (静止クリックでは pan は発火せず、移動すると click がキャンセルされる)
+        let pan = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        chip.addGestureRecognizer(pan)
+
+        // 右クリック: 空(missing)チップにだけ、最前面ウィンドウの割り当てメニューを出す
+        if item.state == .missing {
+            let menu = NSMenu()
+            let assign = NSMenuItem(
+                title: "最前面の Chrome ウィンドウをこの Slot に割り当てる",
+                action: #selector(assignFrontmostMenu(_:)),
+                keyEquivalent: ""
+            )
+            assign.target = self
+            assign.representedObject = item.id
+            assign.image = NSImage(
+                systemSymbolName: "plus.rectangle.on.rectangle",
+                accessibilityDescription: nil
+            )
+            menu.addItem(assign)
+            chip.menu = menu
+        }
         return chip
+    }
+
+    // 空状態のプレースホルダ(操作なし)
+    private func addPlaceholder() {
+        let hosting = NSHostingView(rootView: Text("Slot 未登録")
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5))
+        let size = hosting.fittingSize
+
+        let chip = NSGlassEffectView()
+        chip.contentView = hosting
+        chip.cornerRadius = size.height / 2
+        chip.translatesAutoresizingMaskIntoConstraints = false
+        chip.widthAnchor.constraint(equalToConstant: size.width).isActive = true
+        chip.heightAnchor.constraint(equalToConstant: size.height).isActive = true
+        stack.addArrangedSubview(chip)
     }
 
     private func resizeToFit() {
         panel.setContentSize(stack.fittingSize)
     }
 
+    // MARK: - クリックによる切り替え
+
+    @objc private func handleClick(_ gr: NSClickGestureRecognizer) {
+        guard let chip = gr.view as? ChipView, let id = chip.slotID else { return }
+        // missing チップの左クリックは無効(右クリックの割り当てのみ受け付ける)
+        guard !chip.isMissing else { return }
+        stage.switchTo(id: id)
+    }
+
+    // MARK: - ドラッグによる並び替え
+
+    @objc private func handlePan(_ gr: NSPanGestureRecognizer) {
+        guard let chip = gr.view as? ChipView else { return }
+        switch gr.state {
+        case .began:
+            draggingChip = chip
+            chip.layer?.zPosition = 100 // ドラッグ中は隣接チップより前面に描く
+
+        case .changed:
+            guard draggingChip === chip else { return }
+            let x = gr.location(in: stack).x
+
+            // カーソル位置に応じた挿入先を、他チップの中心 X との前後関係で決める
+            let others = stack.arrangedSubviews.filter { $0 !== chip }
+            let target = others.filter { $0.frame.midX < x }.count
+            let current = stack.arrangedSubviews.firstIndex(of: chip) ?? target
+            if target != current {
+                // 隣接チップを滑らかに押しのける
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.16
+                    ctx.allowsImplicitAnimation = true
+                    stack.removeArrangedSubview(chip)
+                    stack.insertArrangedSubview(chip, at: target)
+                    stack.layoutSubtreeIfNeeded()
+                }
+            }
+            // 現在のスロット位置からの差分だけ平行移動してカーソルに追従させる
+            chip.layer?.setAffineTransform(CGAffineTransform(translationX: x - chip.frame.midX, y: 0))
+
+        case .ended, .cancelled:
+            guard draggingChip === chip else { return }
+            draggingChip = nil
+            // スロット位置へスナップして並び順を確定する
+            chip.layer?.setAffineTransform(.identity)
+            chip.layer?.zPosition = 0
+            commitOrder()
+
+        default:
+            break
+        }
+    }
+
+    // 現在のチップの並びを model へ確定する(番号更新のため再描画も走る)
+    private func commitOrder() {
+        let ids = stack.arrangedSubviews.compactMap { ($0 as? ChipView)?.slotID }
+        stage.reorderSlots(orderedIDs: ids)
+    }
+
     // MARK: - 空スロットへの割り当て
+
+    @objc private func assignFrontmostMenu(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        assignFrontmost(toSlotID: id)
+    }
 
     private func assignFrontmost(toSlotID id: UUID) {
         switch stage.assignFrontmostWindow(toSlotID: id) {

@@ -102,6 +102,23 @@ final class StageController {
         Log.stage.info("Slot 削除: \(id, privacy: .public)")
     }
 
+    // Overlay のドラッグ並び替え結果を反映する。表示順(slots 配列の順序)は
+    // チップ番号とホットキー(switchToIndex)に直結するため、順序を差し替えるだけで
+    // 番号・ホットキーの割り当ても連動する。activeSlotID は id 基準なので影響しない。
+    func reorderSlots(orderedIDs: [UUID]) {
+        // 与えられた ID 集合が現在の slot と完全一致しない場合は、描画レース等で
+        // 不整合が起きているとみなし、破壊的な並べ替えを避けて無視する
+        guard orderedIDs.count == slots.count else { return }
+        let byID = Dictionary(slots.map { ($0.record.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let reordered = orderedIDs.compactMap { byID[$0] }
+        guard reordered.count == slots.count else { return }
+        // 順序に変化がなければ、不要な保存・再描画を避ける
+        guard zip(reordered, slots).contains(where: { $0.record.id != $1.record.id }) else { return }
+        slots = reordered
+        save()
+        Log.stage.info("Slot 並び替え")
+    }
+
     // MARK: - 既存 Slot へのウィンドウ再割り当て
 
     // assignFrontmostWindow の結果。UI 側でメッセージ表示に使う

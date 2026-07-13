@@ -78,6 +78,7 @@ Phase 1(AX-only Stage)を着手順に並べたバックログ。上から順に�
 - [x] NSPanel(non-activating, floating)+ SwiftUI で slot 一覧表示
 - [x] active slot の強調(ハイライト + 緑ドット)、クリックで切り替え
 - [x] 切り替え後に Chrome へ focus を戻す(switchTo 内で前面化)
+- [x] チップのドラッグ並び替え(表示順 = 番号・ホットキーの割り当てに連動、`slots` 配列を差し替えて永続化)
 - 備考: 位置はドラッグ可能で記憶される。メニューから表示/非表示を切り替え可能
 
 ### 10. ホットキー(HotKeyController)✅
