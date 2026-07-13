@@ -1,69 +1,17 @@
 # CLAUDE.md
 
-## プロジェクト概要
+Chrome Stage の開発ガイド。ここには README に載せていない、開発・実装上の指針だけを置く。
 
-**Chrome Stage** は、契約先ごとに分けた Chrome プロファイルのウィンドウを、Chrome 本来の使い勝手を壊さずに 1 つの作業ステージ内で切り替えられるようにする macOS アプリ。
+- **プロジェクト概要・設計思想・中核コンセプト・非目標・権限・安全機能・段階的実装計画（ロードマップ）**: [README.md](README.md) を参照
+- **詳細な設計(背景・代替案・アーキテクチャ・エッジケース・データモデル)**: [chrome-stage-initial-design.md](chrome-stage-initial-design.md) を参照
 
-- 対象環境: macOS / Google Chrome
-- 技術スタック: Swift / AppKit(Overlay UI は NSPanel / SwiftUI)
-- 詳細な設計は [chrome-stage-initial-design.md](chrome-stage-initial-design.md) を参照
+設計思想(Chrome を置き換えず既存ウィンドウを外側からラップするだけ / Stage 方式 / offscreen parking)は最重要かつ不変。実装判断で迷ったら README の "Design philosophy" と "Non-goals" を最優先する。
 
-## 設計思想(最重要・不変)
+## セキュリティ・機密情報の方針(実装制約)
 
-Chrome を置き換えず、**既存の Chrome ウィンドウを外側からラップするだけ**にとどめる。
+README の Privacy を厳守する。加えて実装時は以下も守る。
 
-- Chrome ウィンドウは本物の Chrome ウィンドウのまま保持する
-- 画面上には原則アクティブな Chrome ウィンドウを 1 つだけ表示する(**Stage 方式**)
-- 非アクティブなウィンドウは画面外へ退避する(**offscreen parking**)
-- 自作アプリは「切り替え UI」「プロファイル名表示」「ウィンドウ制御」だけを担当する
-- 他プロセスの Chrome ウィンドウは Accessibility API / CoreGraphics 経由で外部制御する(埋め込まない)
-
-## 非目標(やらないこと)
-
-- 独自ブラウザを作る / Chrome を WebView で再実装する
-- Chrome のプロファイル管理・セッション復元・Dock メニューを置き換える/再実装する
-- 他プロセスの Chrome ウィンドウを自作アプリの NSView に本当に埋め込む
-- すべての Chrome ウィンドウを常に同期移動する(Stacker 方式の轍を踏まない)
-
-## 中核コンセプト
-
-- **Stage**: 現在の作業領域。位置・サイズ・対象ディスプレイ・表示中 slot・Overlay UI の位置を持つ
-- **Slot**: 1 つの Chrome プロファイルウィンドウに対応する論理単位。表示名(契約先名)、Chrome プロファイル、ウィンドウ参照、状態(visible / parked / minimized / missing / closed)を持つ
-- **切り替え処理**: 現在の slot を park → ターゲットを stage rect へ復帰 → focus → Overlay 更新
-
-## セキュリティ・機密情報の方針
-
-契約先の機密情報を扱う前提のため、以下を厳守する。
-
-- URL やページタイトルを保存・送信・ログ出力しない
 - Chrome 拡張の `tabs` permission は必要になるまで付けない(最小権限: `windows`, `nativeMessaging`, `storage`)
-- サムネイル(Screen Recording 権限)はデフォルト無効
-- 設定ファイルに保存するのはプロファイル名とウィンドウ ID 程度にとどめる
-
-## 権限
-
-- **Accessibility**: 必須。ウィンドウの位置取得・移動・リサイズ・前面化に使用
-- **Screen Recording**: オプション。サムネイル表示にのみ必要(MVP では使わない)
-
-## 安全機能(必須)
-
-offscreen parking によりウィンドウが画面外に取り残されるリスクがあるため、以下は必ず維持する。
-
-- `Unpark All`(メニューバーまたはホットキーから全ウィンドウ復帰)
-- アプリ終了時に全ウィンドウを復帰
-- クラッシュ後の復旧(parking rect の永続化と起動時復帰)
-- ディスプレイ構成変更の検出と退避座標の再計算
-
-## 段階的実装計画
-
-| Phase | 内容 |
-|---|---|
-| Phase 1 | AX-only Stage(手動 slot 名 + offscreen parking + Overlay switcher + Unpark All) |
-| Phase 2 | Profile Registry(Chrome の `Local State` からプロファイル名候補を取得) |
-| Phase 3 | Companion Extension + Native Messaging(プロファイル自動認識) |
-| Phase 4 | Polish(サムネイル、Raycast 連携、メニューバーアプリ化など) |
-
-プロファイル名の取得は「手動マッピング → Local State 読み取り → Chrome 拡張 + Native Messaging」の順に段階的に自動化する。
 
 ## エッジケースの基本方針
 
