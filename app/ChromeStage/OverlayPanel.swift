@@ -60,7 +60,30 @@ struct SlotChipContent: View {
     }
 }
 
-// MARK: - チップの操作を受け持つガラスビュー
+// パレット移動用ハンドルの見た目(2 列 × 3 段のグリップドット)
+struct DragHandleContent: View {
+    var body: some View {
+        HStack(spacing: 3) {
+            dotsColumn
+            dotsColumn
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        // イベントは AppKit 側(HandleView)で受け取る
+        .allowsHitTesting(false)
+    }
+
+    private var dotsColumn: some View {
+        VStack(spacing: 3) {
+            Circle().frame(width: 2.5, height: 2.5)
+            Circle().frame(width: 2.5, height: 2.5)
+            Circle().frame(width: 2.5, height: 2.5)
+        }
+    }
+}
+
+// MARK: - チップ/ハンドルの操作を受け持つガラスビュー
 
 // カプセル内のクリック/ドラッグ/右クリックをすべて自身で受け取る。
 // 内部の SwiftUI ホストビューにはイベントを渡さないよう hitTest を固定し、
@@ -73,6 +96,18 @@ final class ChipView: NSGlassEffectView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     // カプセル全体でイベントを受けるため、内部ビューには hit を渡さない
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else { return nil }
+        return bounds.contains(convert(point, from: superview)) ? self : nil
+    }
+}
+
+// パレット移動用のハンドル。ここをドラッグすると
+// isMovableByWindowBackground によりパネル全体が移動する。
+// (チップは移動を奪う mouseDownCanMoveWindow=false なので、移動はここに集約する)
+final class HandleView: NSGlassEffectView {
+    override var mouseDownCanMoveWindow: Bool { true }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let superview else { return nil }
         return bounds.contains(convert(point, from: superview)) ? self : nil
@@ -171,31 +206,55 @@ final class OverlayPanelController {
 
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
+        // 全カプセルの高さと角丸を揃えるため、サンプルの実測値を基準にする
+        // (文字内容によらず行の高さは一定なので、代表値で十分)
+        let sample = NSHostingView(rootView: SlotChipContent(item: SlotChipItem(
+            id: UUID(), index: 1, name: "A", state: .visible, isActive: false)))
+        let capsuleHeight = sample.fittingSize.height
+
+        // 左端にパレット移動用ハンドルを固定で置く
+        stack.addArrangedSubview(makeHandle(height: capsuleHeight))
+
         let items = currentItems()
         if items.isEmpty {
-            addPlaceholder()
+            stack.addArrangedSubview(makePlaceholder(height: capsuleHeight))
         } else {
             for item in items {
-                stack.addArrangedSubview(makeChip(item: item))
+                stack.addArrangedSubview(makeChip(item: item, height: capsuleHeight))
             }
         }
         resizeToFit()
     }
 
+    // パレット移動用ハンドル(操作: ドラッグでパネル移動)
+    private func makeHandle(height: CGFloat) -> HandleView {
+        let hosting = NSHostingView(rootView: DragHandleContent())
+        let width = hosting.fittingSize.width
+
+        let handle = HandleView()
+        handle.wantsLayer = true
+        handle.contentView = hosting
+        handle.cornerRadius = height / 2
+        handle.translatesAutoresizingMaskIntoConstraints = false
+        handle.widthAnchor.constraint(equalToConstant: width).isActive = true
+        handle.heightAnchor.constraint(equalToConstant: height).isActive = true
+        return handle
+    }
+
     // slot チップ(操作可能)を生成する
-    private func makeChip(item: SlotChipItem) -> ChipView {
+    private func makeChip(item: SlotChipItem, height: CGFloat) -> ChipView {
         let hosting = NSHostingView(rootView: SlotChipContent(item: item))
-        let size = hosting.fittingSize
+        let width = hosting.fittingSize.width
 
         let chip = ChipView()
         chip.wantsLayer = true
         chip.slotID = item.id
         chip.isMissing = item.state == .missing
         chip.contentView = hosting
-        chip.cornerRadius = size.height / 2 // カプセル形
+        chip.cornerRadius = height / 2 // カプセル形
         chip.translatesAutoresizingMaskIntoConstraints = false
-        chip.widthAnchor.constraint(equalToConstant: size.width).isActive = true
-        chip.heightAnchor.constraint(equalToConstant: size.height).isActive = true
+        chip.widthAnchor.constraint(equalToConstant: width).isActive = true
+        chip.heightAnchor.constraint(equalToConstant: height).isActive = true
 
         if item.isActive {
             // 完全不透明のアクセントカラー + 白/黒文字。
@@ -232,20 +291,20 @@ final class OverlayPanelController {
     }
 
     // 空状態のプレースホルダ(操作なし)
-    private func addPlaceholder() {
+    private func makePlaceholder(height: CGFloat) -> NSGlassEffectView {
         let hosting = NSHostingView(rootView: Text("Slot 未登録")
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 5))
-        let size = hosting.fittingSize
+        let width = hosting.fittingSize.width
 
         let chip = NSGlassEffectView()
         chip.contentView = hosting
-        chip.cornerRadius = size.height / 2
+        chip.cornerRadius = height / 2
         chip.translatesAutoresizingMaskIntoConstraints = false
-        chip.widthAnchor.constraint(equalToConstant: size.width).isActive = true
-        chip.heightAnchor.constraint(equalToConstant: size.height).isActive = true
-        stack.addArrangedSubview(chip)
+        chip.widthAnchor.constraint(equalToConstant: width).isActive = true
+        chip.heightAnchor.constraint(equalToConstant: height).isActive = true
+        return chip
     }
 
     private func resizeToFit() {
@@ -274,9 +333,10 @@ final class OverlayPanelController {
             guard draggingChip === chip else { return }
             let x = gr.location(in: stack).x
 
-            // カーソル位置に応じた挿入先を、他チップの中心 X との前後関係で決める
-            let others = stack.arrangedSubviews.filter { $0 !== chip }
-            let target = others.filter { $0.frame.midX < x }.count
+            // カーソル位置に応じた挿入先を、他チップの中心 X との前後関係で決める。
+            // 先頭のハンドルは対象外にし、その分(+1)だけずらして常にハンドルの後ろに保つ
+            let otherChips = stack.arrangedSubviews.filter { $0 is ChipView && $0 !== chip }
+            let target = otherChips.filter { $0.frame.midX < x }.count + 1
             let current = stack.arrangedSubviews.firstIndex(of: chip) ?? target
             if target != current {
                 // 隣接チップを滑らかに押しのける
