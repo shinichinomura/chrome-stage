@@ -166,6 +166,27 @@ final class StageController {
         return .success
     }
 
+    // 誤って割り当てたウィンドウを slot から外し、再割り当て可能な missing 状態へ戻す。
+    // slot の名前・並び順は保持する(assignFrontmostWindow の逆操作)。
+    func detachWindow(fromSlotID id: UUID) {
+        guard let slot = slots.first(where: { $0.record.id == id }) else { return }
+        // 既に空(missing)なら外す対象がない
+        guard slot.record.state != .missing else { return }
+        // 退避中のまま外すとウィンドウが画面外へ取り残されるため、先に画面内へ戻す
+        if slot.record.state == .parked {
+            unpark(slot)
+        }
+        // ウィンドウ参照を解除して空きスロットへ戻す
+        slot.axWindow = nil
+        slot.record.macWindowID = nil
+        slot.record.pid = nil
+        slot.record.state = .missing
+        slot.record.updatedAt = Date()
+        if activeSlotID == id { activeSlotID = nil }
+        save()
+        Log.stage.info("Slot 解除: \(id, privacy: .public)")
+    }
+
     // MARK: - 切り替え
 
     func switchTo(id: UUID) {

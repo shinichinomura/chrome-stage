@@ -270,9 +270,11 @@ final class OverlayPanelController {
         let pan = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         chip.addGestureRecognizer(pan)
 
-        // 右クリック: 空(missing)チップにだけ、最前面ウィンドウの割り当てメニューを出す
+        // 右クリックメニュー:
+        // - 空(missing)チップ: 最前面ウィンドウの割り当て
+        // - 登録済みチップ: 誤って割り当てたウィンドウの解除(空きに戻す)
+        let menu = NSMenu()
         if item.state == .missing {
-            let menu = NSMenu()
             let assign = NSMenuItem(
                 title: "最前面の Chrome ウィンドウをこの Slot に割り当てる",
                 action: #selector(assignFrontmostMenu(_:)),
@@ -285,8 +287,21 @@ final class OverlayPanelController {
                 accessibilityDescription: nil
             )
             menu.addItem(assign)
-            chip.menu = menu
+        } else {
+            let detach = NSMenuItem(
+                title: "この Slot のウィンドウを解除",
+                action: #selector(detachWindowMenu(_:)),
+                keyEquivalent: ""
+            )
+            detach.target = self
+            detach.representedObject = item.id
+            detach.image = NSImage(
+                systemSymbolName: "minus.rectangle",
+                accessibilityDescription: nil
+            )
+            menu.addItem(detach)
         }
+        chip.menu = menu
         return chip
     }
 
@@ -375,6 +390,14 @@ final class OverlayPanelController {
     @objc private func assignFrontmostMenu(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         assignFrontmost(toSlotID: id)
+    }
+
+    // MARK: - 登録済みスロットのウィンドウ解除
+
+    @objc private func detachWindowMenu(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        // 解除後は stageDidChange で missing チップとして再描画される
+        stage.detachWindow(fromSlotID: id)
     }
 
     private func assignFrontmost(toSlotID id: UUID) {

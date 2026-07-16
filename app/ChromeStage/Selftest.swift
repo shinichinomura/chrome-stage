@@ -63,6 +63,38 @@ enum Selftest {
               && loaded?.slots.first?.id == record.id
               && loaded?.slots.first?.state == .visible)
 
+        // 6. Slot 解除(detachWindow): 登録済み → missing に戻り、ウィンドウ参照が外れる。
+        //    visible な slot の解除はウィンドウを動かさないため、実ウィンドウを乱さず検証できる。
+        let detachURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chromestage-selftest-detach.json")
+        defer { try? FileManager.default.removeItem(at: detachURL) }
+        let detachStore = StageSessionStore(fileURL: detachURL)
+        let detachSlotID = UUID()
+        detachStore.save(StageSessionRecord(
+            activeSlotID: detachSlotID,
+            stageRect: CodableRect(original),
+            slots: [ChromeSlotRecord(
+                id: detachSlotID, displayName: "detach",
+                macWindowID: info.windowID, pid: Int32(info.pid),
+                lastVisibleRect: CodableRect(original),
+                state: .visible, createdAt: Date(), updatedAt: Date()
+            )]
+        ))
+        let controller = StageController(store: detachStore)
+        // 復元時に実ウィンドウと照合できて visible になっていることが前提
+        if controller.slots.first?.record.state == .visible {
+            controller.detachWindow(fromSlotID: detachSlotID)
+            let after = controller.slots.first
+            check("Slot 解除で missing に戻る",
+                  after?.record.state == .missing
+                  && after?.record.macWindowID == nil
+                  && after?.axWindow == nil
+                  && controller.activeSlotID == nil)
+        } else {
+            // 復元照合に失敗(別管理・タイミング等)した場合はこの検証をスキップする
+            print("SKIP: Slot 解除(復元時に visible にならなかった)")
+        }
+
         print(failures == 0 ? "== ALL PASS ==" : "== \(failures) FAILURE(S) ==")
         return failures == 0 ? 0 : 1
     }
