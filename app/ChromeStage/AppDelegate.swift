@@ -60,14 +60,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         sigtermSource?.resume()
 
-        // Chrome 終了検出
+        // Chrome 終了検出。
+        // 注意: 他アプリが Chrome バイナリを直接 exec して URL を渡すと、同じ bundle ID の
+        // 短命プロセス(既存 Chrome へ引き渡して数秒で終了)が生まれ、その終了でも
+        // この通知が届く。bundle ID だけで判定すると本体が生きているのに全 slot を
+        // 外してしまうため、pid を渡して StageController 側で slot と照合する
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil, queue: .main
         ) { [weak self] notification in
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   app.bundleIdentifier == WindowDiscoveryService.chromeBundleID else { return }
-            self?.stage.handleChromeTerminated()
+            self?.stage.handleChromeTerminated(pid: app.processIdentifier)
         }
     }
 

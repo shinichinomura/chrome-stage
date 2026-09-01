@@ -366,12 +366,21 @@ final class StageController {
         save()
     }
 
-    // Chrome 終了: 全 slot のウィンドウ参照が無効になる
-    func handleChromeTerminated() {
-        Log.recovery.info("Chrome の終了を検出。全 slot を missing にする")
-        for slot in slots {
+    // Chrome 終了: 終了したプロセスのウィンドウを掴んでいる slot の参照が無効になる。
+    // 終了通知は bundle ID が同じ短命な二重起動プロセス(URL を本体へ引き渡して
+    // すぐ終了する)でも届くため、slot が掴んでいる pid と一致するものだけを対象にする。
+    // 一致しない終了は本体 Chrome とは無関係なので無視する
+    func handleChromeTerminated(pid: pid_t) {
+        let affected = slots.filter { $0.record.state != .missing && $0.record.pid == pid }
+        guard !affected.isEmpty else {
+            Log.recovery.info("slot と無関係な Chrome プロセスの終了を無視(pid \(pid))")
+            return
+        }
+        Log.recovery.info("Chrome の終了を検出(pid \(pid))。slot \(affected.count) 件を missing にする")
+        for slot in affected {
             slot.axWindow = nil
             slot.record.state = .missing
+            slot.record.updatedAt = Date()
         }
         save()
     }

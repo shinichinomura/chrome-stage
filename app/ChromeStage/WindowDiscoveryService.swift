@@ -14,8 +14,13 @@ struct ChromeWindowInfo {
 enum WindowDiscoveryService {
     static let chromeBundleID = "com.google.Chrome"
 
+    // 同じ bundle ID のプロセスが複数ある場合(他アプリが Chrome バイナリを直接 exec した
+    // 短命な二重起動など)は、最も早く起動したものを本体とみなす。
+    // 二重起動側は既存 Chrome へ引き渡して数秒で終了するため、ウィンドウを持たない
     static var chromeApp: NSRunningApplication? {
-        NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == chromeBundleID }
+        NSWorkspace.shared.runningApplications
+            .filter { $0.bundleIdentifier == chromeBundleID }
+            .min { ($0.launchDate ?? .distantFuture) < ($1.launchDate ?? .distantFuture) }
     }
 
     // 画面上にある Chrome のウィンドウを前面から順に返す。
