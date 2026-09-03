@@ -73,6 +73,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   app.bundleIdentifier == WindowDiscoveryService.chromeBundleID else { return }
             self?.stage.handleChromeTerminated(pid: app.processIdentifier)
         }
+
+        // Chrome 起動検出: アップデート等で Chrome が再起動すると session restore がウィンドウを
+        // 復元する。見失った slot をその座標で再照合し、Stage を組み直す
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.bundleIdentifier == WindowDiscoveryService.chromeBundleID else { return }
+            self?.stage.handleChromeLaunched(pid: app.processIdentifier)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

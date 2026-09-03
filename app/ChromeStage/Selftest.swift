@@ -95,6 +95,40 @@ enum Selftest {
             print("SKIP: Slot 解除(復元時に visible にならなかった)")
         }
 
+        // 7. Chrome 再起動後の再照合(ジオメトリ)。実ウィンドウは使わず、Chrome が session restore で
+        //    退避座標を作業領域内へ引き込む挙動(x = 右端 − 幅、y は据え置き)を模した合成データで検証する
+        let workArea = CGRect(x: 1710, y: 30, width: 2560, height: 1410)
+        let stageRect = CGRect(x: 1724, y: 76, width: 1974, height: 1242)
+        let parked1 = CGRect(x: 4269, y: 116, width: 1974, height: 1242)
+        let parked2 = CGRect(x: 4269, y: 156, width: 1974, height: 1242)
+        check("AdjustToFit 移植(退避座標が右端 − 幅へ引き込まれる)",
+              StageController.adjustToFit(parked1, in: workArea)
+              == CGRect(x: 2296, y: 116, width: 1974, height: 1242))
+
+        let (visibleID, parked1ID, parked2ID) = (UUID(), UUID(), UUID())
+        let expected = [(visibleID, stageRect), (parked1ID, parked1), (parked2ID, parked2)].map {
+            (id: $0.0, rects: StageController.restoredRectCandidates(for: $0.1, workArea: workArea))
+        }
+        let restored = [
+            ChromeWindowInfo(windowID: 1, pid: 1, bounds: stageRect),
+            ChromeWindowInfo(windowID: 2, pid: 1, bounds: CGRect(x: 2296, y: 116, width: 1974, height: 1242)),
+            ChromeWindowInfo(windowID: 3, pid: 1, bounds: CGRect(x: 2296, y: 156, width: 1974, height: 1242)),
+            ChromeWindowInfo(windowID: 4, pid: 1, bounds: CGRect(x: 100, y: 100, width: 800, height: 600)),
+        ]
+        check("再照合: 復元位置から slot を 1 対 1 で特定",
+              StageController.matchByGeometry(expected: expected, windows: restored)
+              == [visibleID: 1, parked1ID: 2, parked2ID: 3])
+
+        // 曖昧なケースは採用しない: 同じ期待座標を持つ slot が複数
+        let duplicated = [(id: parked1ID, rects: [parked1]), (id: parked2ID, rects: [parked1])]
+        check("再照合: 期待座標が重複する slot は採用しない",
+              StageController.matchByGeometry(expected: duplicated, windows: restored).isEmpty)
+        // 曖昧なケースは採用しない: 1 つの期待座標に複数のウィンドウ
+        let twin = restored + [ChromeWindowInfo(windowID: 5, pid: 1, bounds: stageRect)]
+        let partial = StageController.matchByGeometry(expected: expected, windows: twin)
+        check("再照合: 同じ位置に複数ウィンドウがある slot だけ見送る",
+              partial[visibleID] == nil && partial[parked1ID] == 2 && partial[parked2ID] == 3)
+
         print(failures == 0 ? "== ALL PASS ==" : "== \(failures) FAILURE(S) ==")
         return failures == 0 ? 0 : 1
     }

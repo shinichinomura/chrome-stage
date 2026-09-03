@@ -37,6 +37,16 @@ struct ChromeSlotRecord: Codable {
     var pid: Int32?
 
     var lastVisibleRect: CodableRect?
+
+    // 退避中のウィンドウを実際に置いた座標(park 時に記録し、unpark で消す)。
+    // Chrome 終了でウィンドウを見失っても残し、「退避中だった slot」の目印にも使う
+    var parkedRect: CodableRect?
+
+    // Chrome 終了などでウィンドウを見失った時点の最終既知フレーム。
+    // Chrome は再起動時に各ウィンドウを保存済み座標(を作業領域に収めた位置)へ復元するため、
+    // これを手がかりに slot と再照合する。再照合の成功か、手動の割り当て/解除で消える
+    var lastKnownRect: CodableRect?
+
     var state: SlotState
     var createdAt: Date
     var updatedAt: Date

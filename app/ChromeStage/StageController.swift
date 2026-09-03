@@ -12,6 +12,12 @@ final class StageController {
     private(set) var activeSlotID: UUID?
     private var stageRect: CGRect?
 
+    // Chrome 再起動後、session restore でウィンドウが順次現れるのを待つポーリング
+    private var relaunchPollTimer: Timer?
+    private var relaunchPollRemaining = 0
+    // 今回の再照合で、退避中だった slot が 1 件でも照合できたか(表示中だった slot を採用する条件)
+    private var rematchedParkedSlot = false
+
     init(store: StageSessionStore = StageSessionStore()) {
         self.store = store
         restoreSession()
@@ -36,11 +42,18 @@ final class StageController {
                let info = infos.first(where: { $0.windowID == windowID }),
                let index = pool.firstIndex(where: { $0.matches(info) }) {
                 slot.axWindow = pool.remove(at: index)
-            } else {
+            } else if record.state != .missing {
+                // ID で見つからない。Chrome が再起動して ID が変わった可能性があるので、
+                // 見失う直前の座標を控えて後段のジオメトリ再照合に回す
+                slot.record.lastKnownRect = Self.lastKnownRect(of: record)
                 slot.record.state = .missing
             }
             return slot
         }
+        // ID で照合できなかった slot を、Chrome が復元したウィンドウの座標で再照合する。
+        // 起動時は退避し直さない(起動直後に parked が残っているとクラッシュ復旧が unpark するため)
+        rematchedParkedSlot = false
+        rematchLostSlots(repark: false)
         let missing = slots.filter { $0.record.state == .missing }.count
         Log.stage.info("セッション復元: slot \(self.slots.count) 件(うち missing \(missing) 件)")
     }
@@ -156,6 +169,8 @@ final class StageController {
         slot.record.macWindowID = info.windowID
         slot.record.pid = Int32(info.pid)
         slot.record.lastVisibleRect = CodableRect(info.bounds)
+        slot.record.parkedRect = nil
+        slot.record.lastKnownRect = nil
         slot.record.state = .visible
         slot.record.updatedAt = Date()
         save()
@@ -180,6 +195,8 @@ final class StageController {
         slot.axWindow = nil
         slot.record.macWindowID = nil
         slot.record.pid = nil
+        slot.record.parkedRect = nil
+        slot.record.lastKnownRect = nil
         slot.record.state = .missing
         slot.record.updatedAt = Date()
         if activeSlotID == id { activeSlotID = nil }
@@ -193,6 +210,7 @@ final class StageController {
         guard let target = slots.first(where: { $0.record.id == id }) else { return }
         guard let targetAX = target.axWindow, targetAX.isAlive else {
             target.record.state = .missing
+            target.record.parkedRect = nil
             save()
             Log.stage.warning("切り替え失敗: 対象ウィンドウが存在しない(slot \(id, privacy: .public))")
             return
@@ -223,6 +241,11 @@ final class StageController {
             targetAX.setSize(rect.size)
         }
         targetAX.focus()
+        // 表示位置を控える(Chrome 終了時の最終既知フレームとして再照合に使う)
+        if let frame = targetAX.frame() {
+            target.record.lastVisibleRect = CodableRect(frame)
+        }
+        target.record.parkedRect = nil
         target.record.state = .visible
         target.record.updatedAt = Date()
         activeSlotID = id
@@ -244,8 +267,11 @@ final class StageController {
               let frame = ax.frame() else { return }
 
         slot.record.lastVisibleRect = CodableRect(frame)
-        if ax.setPosition(CGPoint(x: Self.parkingX(), y: frame.origin.y + yOffset)) {
+        let point = CGPoint(x: Self.parkingX(), y: frame.origin.y + yOffset)
+        if ax.setPosition(point) {
             slot.record.state = .parked
+            // 実際に置かれた座標を記録する(Chrome 再起動後の再照合の手がかり)
+            slot.record.parkedRect = CodableRect(ax.frame() ?? CGRect(origin: point, size: frame.size))
             slot.record.updatedAt = Date()
         } else {
             Log.stage.error("park 失敗: slot \(slot.record.id, privacy: .public)")
@@ -254,6 +280,7 @@ final class StageController {
 
     private func unpark(_ slot: Slot, fallbackOffset: CGFloat = 0) {
         guard slot.record.state == .parked else { return }
+        slot.record.parkedRect = nil
         guard let ax = slot.axWindow, ax.isAlive else {
             slot.record.state = .missing
             return
@@ -359,7 +386,9 @@ final class StageController {
         for slot in slots where slot.record.state == .parked {
             guard let ax = slot.axWindow, ax.isAlive, let frame = ax.frame() else { continue }
             // 新しい構成の退避座標へ移し直す。失敗したら迷子防止のため画面内へ戻す
-            if !ax.setPosition(CGPoint(x: Self.parkingX(), y: frame.origin.y)) {
+            if ax.setPosition(CGPoint(x: Self.parkingX(), y: frame.origin.y)) {
+                slot.record.parkedRect = ax.frame().map(CodableRect.init) ?? slot.record.parkedRect
+            } else {
                 unpark(slot)
             }
         }
@@ -378,11 +407,215 @@ final class StageController {
         }
         Log.recovery.info("Chrome の終了を検出(pid \(pid))。slot \(affected.count) 件を missing にする")
         for slot in affected {
+            // 見失う直前の座標を控える。Chrome が再起動(アップデート等)すると各ウィンドウは
+            // この座標を作業領域に収めた位置へ復元されるので、再照合の手がかりになる
+            slot.record.lastKnownRect = Self.lastKnownRect(of: slot.record)
             slot.axWindow = nil
             slot.record.state = .missing
             slot.record.updatedAt = Date()
         }
         save()
+    }
+
+    // MARK: - Chrome 再起動後の slot 復元
+
+    // Chrome のアップデート等による再起動では、session restore が各プロファイルのウィンドウを
+    // 保存済み座標へ復元する。ただし座標はそのままではなく、Chromium の
+    // WindowSizer::DetermineWindowBoundsAndShowState が gfx::Rect::AdjustToFit で作業領域に
+    // 収めるため、退避中だった窓は x = 作業領域右端 − 幅 に引き込まれ、y はそのまま残る
+    // (実機で確認済み)。退避時に slot ごとに y をずらしているので、この y と
+    // 「表示中だった窓は stage rect に戻る」ことを手がかりに slot を 1 対 1 で特定できる。
+    //
+    // 誤った名前を付ける方が missing のままより有害(別の契約先のウィンドウで作業しかねない)
+    // なので、照合はジオメトリが一意に定まる場合にだけ採用し、曖昧なら missing のままにする。
+
+    // 見失う直前の座標。退避中なら退避座標、表示中なら表示位置
+    private static func lastKnownRect(of record: ChromeSlotRecord) -> CodableRect? {
+        switch record.state {
+        case .parked: return record.parkedRect
+        case .visible: return record.lastVisibleRect
+        case .missing: return record.lastKnownRect
+        }
+    }
+
+    // 見失った(lastKnownRect を持つ missing の)slot
+    private var lostSlots: [Slot] {
+        slots.filter { $0.record.state == .missing && $0.record.lastKnownRect != nil }
+    }
+
+    // Chrome 起動検出(AppDelegate から)。session restore は各プロファイルのウィンドウを
+    // 数秒かけて順次復元するため、一定時間ポーリングして再照合する
+    func handleChromeLaunched(pid: pid_t) {
+        guard !lostSlots.isEmpty else { return }
+        Log.recovery.info("Chrome の起動を検出(pid \(pid))。見失った slot \(self.lostSlots.count) 件の再照合を開始する")
+        rematchedParkedSlot = false
+        relaunchPollRemaining = 60
+        relaunchPollTimer?.invalidate()
+        relaunchPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            self.relaunchPollRemaining -= 1
+            self.rematchLostSlots(repark: true)
+            let remaining = self.lostSlots.count
+            if remaining == 0 || self.relaunchPollRemaining <= 0 || WindowDiscoveryService.chromeApp == nil {
+                timer.invalidate()
+                self.relaunchPollTimer = nil
+                Log.recovery.info("再照合を終了(未復元の slot \(remaining) 件)")
+            }
+        }
+    }
+
+    // 見失った slot を、現在の Chrome ウィンドウとジオメトリで再照合する。
+    // repark: 退避中だった slot を退避座標へ戻すか(実行中の Chrome 再起動では true、
+    // アプリ起動時はクラッシュ復旧の unpark と衝突するため false)
+    @discardableResult
+    func rematchLostSlots(repark: Bool) -> Int {
+        let lost = lostSlots
+        guard !lost.isEmpty else { return 0 }
+        let candidates = availableCandidates()
+        guard !candidates.isEmpty else { return 0 }
+
+        let expected = lost.map { slot -> (id: UUID, rects: [CGRect]) in
+            let rect = slot.record.lastKnownRect!.rect
+            return (slot.record.id, Self.restoredRectCandidates(for: rect, workArea: Self.workArea(containing: rect)))
+        }
+        let assignment = Self.matchByGeometry(expected: expected, windows: candidates.map(\.info))
+        guard !assignment.isEmpty else { return 0 }
+
+        var adopted = 0
+        // 退避中だった slot を先に処理し、表示中だった slot の採用条件(下記)に反映する
+        let ordered = lost.sorted { $0.record.parkedRect != nil && $1.record.parkedRect == nil }
+        for slot in ordered {
+            guard let windowID = assignment[slot.record.id],
+                  let candidate = candidates.first(where: { $0.info.windowID == windowID }) else { continue }
+            let wasParked = slot.record.parkedRect != nil
+
+            // 表示中だった slot の期待座標は stage rect そのもの。Chrome を通常終了 → 通常起動した
+            // 場合、各プロファイルは最後の表示位置を覚えているため、別プロファイルの新規ウィンドウが
+            // 同じ座標に開くことがあり得る。退避中だった slot が 1 件も照合できていない間は
+            // session restore とは判断できないので、誤った名前を付けないよう見送る
+            if !wasParked, !rematchedParkedSlot, lost.contains(where: { $0.record.parkedRect != nil }) {
+                continue
+            }
+
+            slot.axWindow = candidate.ax
+            slot.record.macWindowID = candidate.info.windowID
+            slot.record.pid = Int32(candidate.info.pid)
+            slot.record.lastKnownRect = nil
+            slot.record.parkedRect = nil
+            slot.record.state = .visible
+            slot.record.updatedAt = Date()
+            if wasParked {
+                rematchedParkedSlot = true
+                if repark { self.repark(slot) }
+            } else {
+                // 表示中だったウィンドウは、復元された位置をそのまま表示位置とする
+                slot.record.lastVisibleRect = CodableRect(candidate.info.bounds)
+            }
+            adopted += 1
+            Log.recovery.info("再照合: slot \(slot.record.id, privacy: .public) ← windowID \(candidate.info.windowID)")
+        }
+        if adopted > 0 { save() }
+        return adopted
+    }
+
+    // Chrome が復元した(退避中だった)ウィンドウを、表示位置の記録を保ったまま退避座標へ戻す。
+    // park() は現在の frame を表示位置として記録してしまうため、ここでは使えない
+    private func repark(_ slot: Slot) {
+        guard let ax = slot.axWindow, ax.isAlive, let frame = ax.frame() else { return }
+        let point = CGPoint(x: Self.parkingX(), y: frame.origin.y)
+        if ax.setPosition(point) {
+            slot.record.state = .parked
+            slot.record.parkedRect = CodableRect(ax.frame() ?? CGRect(origin: point, size: frame.size))
+        } else {
+            Log.stage.error("再退避に失敗: slot \(slot.record.id, privacy: .public)")
+        }
+    }
+
+    // どの slot も掴んでいない Chrome ウィンドウ(CGWindow 情報と AX 要素の 1 対 1 の組)。
+    // 生きている slot が掴んでいる windowID と AX 要素は候補から外す
+    private func availableCandidates() -> [(info: ChromeWindowInfo, ax: AXWindow)] {
+        let infos = WindowDiscoveryService.listChromeWindows()
+        guard let pid = infos.first?.pid else { return [] }
+        let live = slots.filter { $0.record.state != .missing }
+        let liveWindowIDs = Set(live.compactMap { $0.record.macWindowID })
+        let liveElements = live.compactMap { $0.axWindow?.element }
+        var pool = AXWindow.standardWindows(pid: pid).filter { ax in
+            !liveElements.contains { CFEqual($0, ax.element) }
+        }
+        var candidates: [(info: ChromeWindowInfo, ax: AXWindow)] = []
+        for info in infos where !liveWindowIDs.contains(info.windowID) {
+            guard let index = pool.firstIndex(where: { $0.matches(info) }) else { continue }
+            candidates.append((info, pool.remove(at: index)))
+        }
+        return candidates
+    }
+
+    // rect と最も重なるディスプレイの作業領域(AX 座標)。重なるものがなければメインディスプレイ。
+    // Chromium の display::Screen::GetDisplayMatching(bounds).work_area() に相当する
+    private static func workArea(containing rect: CGRect) -> CGRect {
+        func overlap(_ screen: NSScreen) -> CGFloat {
+            let i = axRect(fromCocoaRect: screen.frame).intersection(rect)
+            return i.isNull ? 0 : i.width * i.height
+        }
+        let screen = NSScreen.screens.filter { overlap($0) > 0 }.max { overlap($0) < overlap($1) }
+            ?? NSScreen.main ?? NSScreen.screens.first
+        guard let screen else { return rect }
+        return axRect(fromCocoaRect: screen.visibleFrame)
+    }
+
+    // Chrome が session restore で置き直す座標の候補: 保存座標そのものと、
+    // それを作業領域に収めた座標(gfx::Rect::AdjustToFit 相当)の両方
+    static func restoredRectCandidates(for rect: CGRect, workArea: CGRect) -> [CGRect] {
+        let fitted = adjustToFit(rect, in: workArea)
+        return fitted.equalTo(rect) ? [rect] : [rect, fitted]
+    }
+
+    // gfx::Rect::AdjustToFit の移植: サイズを領域以下に縮め、はみ出した分だけ内側へ寄せる
+    static func adjustToFit(_ rect: CGRect, in area: CGRect) -> CGRect {
+        func axis(_ origin: CGFloat, _ size: CGFloat, areaOrigin: CGFloat, areaSize: CGFloat) -> (CGFloat, CGFloat) {
+            let newSize = min(areaSize, size)
+            let newOrigin = origin < areaOrigin
+                ? areaOrigin
+                : min(areaOrigin + areaSize, origin + newSize) - newSize
+            return (newOrigin, newSize)
+        }
+        let (x, width) = axis(rect.origin.x, rect.width, areaOrigin: area.origin.x, areaSize: area.width)
+        let (y, height) = axis(rect.origin.y, rect.height, areaOrigin: area.origin.y, areaSize: area.height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    // 見失った slot の期待座標と、現在の Chrome ウィンドウを 1 対 1 で照合する。
+    // 期待座標に合うウィンドウがちょうど 1 枚で、かつそのウィンドウに合う期待座標も
+    // ちょうど 1 つの場合だけ採用する(どちらかが複数なら曖昧とみなして見送る)
+    static func matchByGeometry(
+        expected: [(id: UUID, rects: [CGRect])],
+        windows: [ChromeWindowInfo],
+        tolerance: CGFloat = 8
+    ) -> [UUID: CGWindowID] {
+        func fits(_ a: CGRect, _ b: CGRect) -> Bool {
+            abs(a.origin.x - b.origin.x) <= tolerance
+                && abs(a.origin.y - b.origin.y) <= tolerance
+                && abs(a.width - b.width) <= tolerance
+                && abs(a.height - b.height) <= tolerance
+        }
+        var result: [UUID: CGWindowID] = [:]
+        for slot in expected {
+            let hits = windows.filter { window in slot.rects.contains { fits($0, window.bounds) } }
+            guard hits.count == 1, let window = hits.first else { continue }
+            let rivals = expected.filter { other in other.rects.contains { fits($0, window.bounds) } }
+            guard rivals.count == 1 else { continue }
+            result[slot.id] = window.windowID
+        }
+        return result
+    }
+
+    // Cocoa 座標(左下原点)から AX 座標(左上原点)への変換。
+    // 式は cocoaRect(fromAXRect:) と同一(この変換は自己逆写像)
+    private static func axRect(fromCocoaRect rect: CGRect) -> CGRect {
+        cocoaRect(fromAXRect: rect)
     }
 
     // AX 座標(左上原点)から Cocoa 座標(左下原点)への変換。

@@ -33,6 +33,7 @@ This is deliberately *not* the "physically stack every window at the same coordi
 - **Floating overlay palette** (a non-activating `NSPanel` + SwiftUI) that lists slots, highlights the active one, and switches on click. Draggable; its position is remembered. On macOS 26 it uses the Liquid Glass look (`NSGlassEffectView`).
 - Right-click an empty (missing) slot to reassign the frontmost Chrome window to it.
 - Session persistence to `~/Library/Application Support/ChromeStage/session.json`.
+- **Chrome relaunch recovery**: when Chrome restarts (e.g. "Relaunch to update"), the windows it restores are matched back to their slots and re-parked automatically.
 - **Safety features** (see below): `Unpark All`, restore-on-quit, crash recovery, and display-change handling.
 - Zero third-party dependencies. Global hotkeys use Carbon `RegisterEventHotKey` directly.
 
@@ -102,7 +103,8 @@ Because offscreen parking can strand a window off-screen if something goes wrong
 - **Restore on quit** — all windows are restored when the app terminates (including on `SIGTERM`).
 - **Crash recovery** — parked windows are detected and restored on the next launch.
 - **Display-change handling** — parking coordinates are recomputed when the display configuration changes, and an off-screen stage rect is reset onto the main display.
-- **Chrome-quit detection** — slots become `missing` when Chrome exits.
+- **Chrome-quit detection** — slots become `missing` when Chrome exits, remembering where each window was.
+- **Chrome relaunch recovery** — when Chrome comes back and restores its windows, they are matched to slots by geometry (Chrome restores each window at its saved position, pulled into the work area) and re-parked. An ambiguous match is left as `missing` rather than guessed, so a window is never labelled with the wrong profile.
 
 ## Privacy
 
