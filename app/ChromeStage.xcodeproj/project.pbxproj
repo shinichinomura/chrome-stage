@@ -55,6 +55,7 @@
 				CS00000000000000000A0007 /* Sources */,
 				CS00000000000000000A0008 /* Frameworks */,
 				CS00000000000000000A0009 /* Resources */,
+				CS00000000000000000A0010 /* Embed Git Info */,
 			);
 			buildRules = (
 			);
@@ -114,6 +115,29 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		CS00000000000000000A0010 /* Embed Git Info */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Embed Git Info";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Git のコミット情報とビルド日時を Info.plist に書き込む(メニューバーのバージョン表示用)。\n# Info.plist は GENERATE_INFOPLIST_FILE で生成されるため、生成後の成果物側を書き換える。\n# 署名はすべてのビルドフェーズの後に行われるので、ここでの変更は署名に含まれる。\n# 注意: このフェーズの Input Files に $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH) を宣言してあること。\n# 宣言がないと Info.plist の生成(ProcessInfoPlistFile)が後から走り、ここで書いた値が消える\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\ncd \"${SRCROOT}/..\"\nCOMMIT=\"$(git rev-parse --short HEAD 2>/dev/null || echo unknown)\"\nif [ -n \"$(git status --porcelain --untracked-files=no 2>/dev/null)\" ]; then\n  COMMIT=\"${COMMIT}-dirty\"\nfi\nCOUNT=\"$(git rev-list --count HEAD 2>/dev/null || echo 0)\"\nDATE=\"$(date '+%Y-%m-%d %H:%M')\"\nset_key() {\n  /usr/libexec/PlistBuddy -c \"Set :$1 $2\" \"${PLIST}\" 2>/dev/null \\\n    || /usr/libexec/PlistBuddy -c \"Add :$1 string $2\" \"${PLIST}\"\n}\nset_key ChromeStageGitCommit \"${COMMIT}\"\nset_key ChromeStageBuildDate \"${DATE}\"\n# ビルド番号はコミット数にして、新旧を比較できるようにする\nset_key CFBundleVersion \"${COUNT}\"\necho \"Embed Git Info: ${COMMIT} build ${COUNT} (${DATE})\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		CS00000000000000000A0007 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -162,7 +186,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -225,7 +249,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;

@@ -55,6 +55,12 @@ xcodebuild -project app/ChromeStage.xcodeproj -scheme ChromeStage build
 open app/ChromeStage.xcodeproj
 ```
 
+The build embeds the git commit (with a `-dirty` suffix if the working tree had uncommitted changes), the commit count as the build number, and the build date into `Info.plist` via the "Embed Git Info" run-script phase. To check a build without launching the UI:
+
+```bash
+/path/to/ChromeStage.app/Contents/MacOS/ChromeStage --version
+```
+
 There is also a headless self-test that exercises detection → AX matching → park → restore → persistence without launching the UI:
 
 ```bash
@@ -76,6 +82,7 @@ Click the menu-bar icon to:
 - Remove slots.
 - Show/hide the overlay palette.
 - **Unpark All Chrome Windows**.
+- See which build is running: `Chrome Stage 0.1.0 (build N, <git commit>)`. Click it for the build date, the bundle path the process was launched from, and the process launch time (useful after replacing the app in `/Applications` to confirm the old process is gone).
 - Quit (all parked windows are restored on quit).
 
 ### Overlay palette
@@ -146,6 +153,7 @@ app/ChromeStage/          Swift / AppKit sources
   HotKeyController.swift     Global hotkeys via Carbon
   AccessibilityPermission   Permission check & prompt
   Selftest.swift            Headless --selftest mode
+  AppVersion.swift          Running build identity (version, git commit, build date)
   Log.swift                 OSLog wrappers
 spikes/                   Standalone verification experiments
 ```

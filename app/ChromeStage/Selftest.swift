@@ -5,7 +5,7 @@ import AppKit
 // 実行後は対象ウィンドウを必ず元の位置へ戻す。
 enum Selftest {
     static func run() -> Int32 {
-        print("== ChromeStage selftest ==")
+        print("== ChromeStage selftest \(AppVersion.current.summary) ==")
         var failures = 0
 
         func check(_ name: String, _ ok: Bool) {

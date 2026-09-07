@@ -16,6 +16,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--selftest") {
             exit(Selftest.run())
         }
+        // バージョン表示(どのビルドかを確認する用)
+        if CommandLine.arguments.contains("--version") {
+            print(AppVersion.current.details)
+            exit(0)
+        }
 
         let app = NSApplication.shared
         let delegate = AppDelegate()
@@ -24,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Log.app.info("ChromeStage 起動")
+        Log.app.info("ChromeStage 起動: \(AppVersion.current.summary, privacy: .public)")
         stage = StageController()
         stage.recoverFromCrashIfNeeded()
         setUpStatusItem()
@@ -189,8 +194,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(unparkItem)
 
         menu.addItem(.separator())
+
+        // 動作中のビルドを確認できるようにする(差し替え後に古いプロセスが残っていないか等)
+        let versionItem = NSMenuItem(
+            title: "Chrome Stage \(AppVersion.current.summary)",
+            action: #selector(showVersion),
+            keyEquivalent: ""
+        )
+        versionItem.target = self
+        menu.addItem(versionItem)
+
         menu.addItem(
             NSMenuItem(title: "Chrome Stage を終了", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        )
+    }
+
+    // バージョン詳細(ビルド日時・起動元パス・プロセスの起動時刻)
+    @objc private func showVersion() {
+        let app = NSRunningApplication.current
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        let launched = app.launchDate.map { formatter.string(from: $0) } ?? "不明"
+        showAlert(
+            "Chrome Stage \(AppVersion.current.summary)",
+            AppVersion.current.details + "\nプロセス: PID \(app.processIdentifier)(\(launched) 起動)"
         )
     }
 
