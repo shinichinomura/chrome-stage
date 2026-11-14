@@ -4,6 +4,8 @@
 
 **決定: 現行機能を維持し、Developer ID 署名・Apple 公証付きで GitHub Releases から配布する。** 以下の実機確認表は準備前の調査記録。現在の公開手順は [Developer ID 配布の手順](release/README.md) を参照。
 
+2026-11-15: [0.1.0 を一般公開](https://github.com/shinichinomura/chrome-stage/releases/tag/v0.1.0)。公開バイナリは `b4b8e40` / build `22`。Universal archive、Developer ID 署名、公証、staple、Gatekeeper、ZIP 展開後の署名とバージョンを確認した。新規 Mac での初回 Accessibility 許可や Intel 実機での動作は今回未検証。
+
 ## 現状の判断
 
 **現在の Accessibility API（AX）によるウィンドウ操作を維持したまま、Mac App Store に新規公開するための対応経路は確認できない。** 署名やストア情報の整備より先に、配布経路または操作方式を決める必要がある。
