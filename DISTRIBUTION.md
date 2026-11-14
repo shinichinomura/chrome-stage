@@ -2,6 +2,8 @@
 
 確認日: 2026-11-15。調査対象: `d3794aa` / version `0.1.0` / build `20`。
 
+**決定: 現行機能を維持し、Developer ID 署名・Apple 公証付きで GitHub Releases から配布する。** 以下の実機確認表は準備前の調査記録。現在の公開手順は [Developer ID 配布の手順](release/README.md) を参照。
+
 ## 現状の判断
 
 **現在の Accessibility API（AX）によるウィンドウ操作を維持したまま、Mac App Store に新規公開するための対応経路は確認できない。** 署名やストア情報の整備より先に、配布経路または操作方式を決める必要がある。
@@ -52,7 +54,7 @@ codesign -d --entitlements - \
 
 ### 現行機能を維持する場合
 
-Developer ID 署名と Apple の公証を行い、自分のサイトや GitHub Releases などから配布する方法が候補。**配布先は未決定。** 公証は App Store 審査とは異なる。[Apple の公証手順](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
+Developer ID 署名と Apple の公証を行い、GitHub Releases から配布する。公証は App Store 審査とは異なる。[Apple の公証手順](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
 
 1. Apple Developer Program の有効な契約と Developer ID Application 証明書を確認・用意する。
 2. Release archive と配布用の export 手順を用意する。Hardened Runtime、secure timestamp、`get-task-allow` がないことを確認する。
@@ -74,4 +76,4 @@ Developer ID 署名と Apple の公証を行い、自分のサイトや GitHub R
 - Git コミット数を `CFBundleVersion` に上書きする現在のスクリプトを見直し、提出済みビルドと重複しない番号を管理できるようにする。
 - Chrome が必要なこと、初回の権限設定、メニューバーからの操作、復帰手順を審査担当者に説明し、実機で検証する。
 
-アプリのアップロード、審査提出、公証、一般公開はまだ行っていない。
+この調査後、Xcode の登録済みアカウントによる自動署名と公証が利用できることを確認した。ローカルの証明書一覧に Developer ID がないことだけで配布不可と判断しない。以降の作業は [Developer ID 配布の手順](release/README.md) に従う。App Store への審査提出は行わない。
