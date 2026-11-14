@@ -71,6 +71,10 @@ On first launch, macOS will ask for Accessibility permission. Grant it in **Syst
 
 Chrome Stage runs as a menu-bar app (`LSUIElement`) with no Dock icon; look for the icon in the menu bar.
 
+## 公開・配布
+
+現在の Accessibility API によるウィンドウ操作は、Mac App Store で必須の App Sandbox と非互換です。公開に向けた調査結果、ビルド・署名の確認状況、配布方針ごとの準備項目は [公開準備](DISTRIBUTION.md) を参照してください。
+
 ## Usage
 
 ### Menu bar
