@@ -12,6 +12,12 @@ final class StageController {
     private(set) var activeSlotID: UUID?
     private var stageRect: CGRect?
 
+    // 現在のディスプレイ構成と、構成ごとに覚えている stage rect(1 画面 ⇄ 2 画面で定位置へ戻す)
+    private var displaySignature = StageController.currentDisplaySignature()
+    private var stageRectsByDisplays: [String: CGRect] = [:]
+    // ディスプレイ構成の通知は短時間に連発するため、落ち着いてから 1 回だけ処理する
+    private var displayChangeTimer: Timer?
+
     // Chrome 再起動後、session restore でウィンドウが順次現れるのを待つポーリング
     private var relaunchPollTimer: Timer?
     private var relaunchPollRemaining = 0
@@ -29,6 +35,10 @@ final class StageController {
         guard let session = store.load() else { return }
         activeSlotID = session.activeSlotID
         stageRect = session.stageRect?.rect
+        stageRectsByDisplays = (session.stageRectsByDisplays ?? [:]).mapValues(\.rect)
+        // 保存時と構成が違えば(例: 外出先で 1 画面のまま起動)、slot 復元後に配置を合わせ直す
+        let savedSignature = session.displaySignature
+        if let savedSignature { displaySignature = savedSignature }
 
         let infos = WindowDiscoveryService.listChromeWindows()
         // AX ウィンドウの割り当ては必ず 1 対 1 にする。退避中のウィンドウは全 slot が
@@ -56,13 +66,19 @@ final class StageController {
         rematchLostSlots(repark: false)
         let missing = slots.filter { $0.record.state == .missing }.count
         Log.stage.info("セッション復元: slot \(self.slots.count) 件(うち missing \(missing) 件)")
+
+        if let savedSignature, savedSignature != Self.currentDisplaySignature() {
+            applyDisplayChange()
+        }
     }
 
     private func save() {
         store.save(StageSessionRecord(
             activeSlotID: activeSlotID,
             stageRect: stageRect.map(CodableRect.init),
-            slots: slots.map(\.record)
+            slots: slots.map(\.record),
+            displaySignature: displaySignature,
+            stageRectsByDisplays: stageRectsByDisplays.mapValues(CodableRect.init)
         ))
         NotificationCenter.default.post(name: .stageDidChange, object: nil)
     }
@@ -261,13 +277,26 @@ final class StageController {
         return globalMaxX - 1
     }
 
+    // 退避先の y を、右端のディスプレイの縦範囲に収める。
+    // ディスプレイ構成が変わると元の y が残ったディスプレイの範囲外になり、
+    // 退避したウィンドウが画面端に 1px も掛からず迷子になるため
+    private static func clampedParkingY(_ y: CGFloat) -> CGFloat {
+        let globalMaxX = NSScreen.screens.map(\.frame.maxX).max() ?? 0
+        let rightmost = NSScreen.screens
+            .filter { $0.frame.maxX == globalMaxX }
+            .map { axRect(fromCocoaRect: $0.frame) }
+        guard let minY = rightmost.map(\.minY).min(),
+              let maxY = rightmost.map(\.maxY).max() else { return y }
+        return min(max(y, minY), maxY - 100)
+    }
+
     private func park(_ slot: Slot, yOffset: CGFloat = 0) {
         guard slot.record.state == .visible,
               let ax = slot.axWindow, ax.isAlive,
               let frame = ax.frame() else { return }
 
         slot.record.lastVisibleRect = CodableRect(frame)
-        let point = CGPoint(x: Self.parkingX(), y: frame.origin.y + yOffset)
+        let point = CGPoint(x: Self.parkingX(), y: Self.clampedParkingY(frame.origin.y + yOffset))
         if ax.setPosition(point) {
             slot.record.state = .parked
             // 実際に置かれた座標を記録する(Chrome 再起動後の再照合の手がかり)
@@ -293,6 +322,8 @@ final class StageController {
             rect.origin.x += fallbackOffset
             rect.origin.y += fallbackOffset
         }
+        // 外したディスプレイ上の座標を覚えたままの場合があるため、必ず画面内へ収める
+        rect = Self.fitToScreens(rect)
         ax.setPosition(rect.origin)
         ax.setSize(rect.size)
         slot.record.state = .visible
@@ -371,28 +402,81 @@ final class StageController {
         unparkAll()
     }
 
-    // ディスプレイ構成変更: 退避座標を再計算し、stage rect が画面外ならリセットする
+    // ディスプレイ構成変更(抜き差し・解像度変更)。通知は連発するため少し待ってから処理する
     func handleDisplayChange() {
-        Log.recovery.info("ディスプレイ構成変更を検出")
+        displayChangeTimer?.invalidate()
+        displayChangeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+            self?.applyDisplayChange()
+        }
+    }
 
-        if let rect = stageRect {
-            let cocoa = Self.cocoaRect(fromAXRect: rect)
-            if !NSScreen.screens.contains(where: { $0.frame.intersects(cocoa) }) {
-                Log.recovery.warning("stage rect が画面外になったためリセット")
-                stageRect = nil
-            }
+    // ディスプレイ構成が変わったときの自動配置。
+    // - 構成(接続中のディスプレイの組)が変わったら、離れる構成の stage rect を覚え、
+    //   移った先の構成で覚えていればそれを、なければ現在の stage rect を画面内へ収めて採用する
+    //   (2 画面 → 1 画面: メイン画面へ収まる / 1 画面 → 2 画面: サブ画面の定位置へ戻る)
+    // - 表示中のウィンドウは、構成が変わった場合・stage rect が補正された場合に stage rect へ合わせ直す
+    //   (構成が同じ解像度変更だけなら、ユーザーが動かした位置は尊重する)
+    // - 退避中のウィンドウは新しい構成の退避座標へ置き直す
+    private func applyDisplayChange() {
+        let newSignature = Self.currentDisplaySignature()
+        let configurationChanged = newSignature != displaySignature
+        Log.recovery.info("ディスプレイ構成変更を検出(構成の組が変化: \(configurationChanged))")
+
+        let before = stageRect
+        if configurationChanged {
+            if let rect = stageRect { stageRectsByDisplays[displaySignature] = rect }
+            displaySignature = newSignature
+            if let remembered = stageRectsByDisplays[newSignature] { stageRect = remembered }
+        }
+        if let rect = stageRect { stageRect = Self.fitToScreens(rect) }
+
+        if let rect = stageRect,
+           configurationChanged || rect != before,
+           let active = slots.first(where: { $0.record.id == activeSlotID }),
+           active.record.state == .visible,
+           let ax = active.axWindow, ax.isAlive {
+            ax.setPosition(rect.origin)
+            ax.setSize(rect.size)
+            // 実際に置かれた位置を読み直して控える(Chrome 側の最小サイズ等で食い違うことがある)
+            let actual = ax.frame() ?? rect
+            active.record.lastVisibleRect = CodableRect(actual)
+            active.record.updatedAt = Date()
+            Log.recovery.info("表示中のウィンドウを新しい構成の stage rect へ移動した")
         }
 
         for slot in slots where slot.record.state == .parked {
             guard let ax = slot.axWindow, ax.isAlive, let frame = ax.frame() else { continue }
             // 新しい構成の退避座標へ移し直す。失敗したら迷子防止のため画面内へ戻す
-            if ax.setPosition(CGPoint(x: Self.parkingX(), y: frame.origin.y)) {
+            let point = CGPoint(x: Self.parkingX(), y: Self.clampedParkingY(frame.origin.y))
+            if ax.setPosition(point) {
                 slot.record.parkedRect = ax.frame().map(CodableRect.init) ?? slot.record.parkedRect
             } else {
                 unpark(slot)
             }
         }
         save()
+    }
+
+    // 接続中のディスプレイの組を表す識別子(CGDirectDisplayID を昇順に連結)。
+    // 解像度や並びの変更では変わらず、ディスプレイの抜き差しでだけ変わる
+    static func currentDisplaySignature() -> String {
+        NSScreen.screens
+            .compactMap { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value }
+            .sorted()
+            .map(String.init)
+            .joined(separator: ",")
+    }
+
+    // rect が(ほぼ)画面内に収まっていればそのまま、はみ出していれば最も重なるディスプレイ
+    // (重なりがなければメイン)の作業領域へ収める。外したディスプレイ上の座標を救うのに使う
+    static func fitToScreens(_ rect: CGRect) -> CGRect {
+        let area = rect.width * rect.height
+        let visible = NSScreen.screens.reduce(CGFloat(0)) { sum, screen in
+            let i = axRect(fromCocoaRect: screen.frame).intersection(rect)
+            return sum + (i.isNull ? 0 : i.width * i.height)
+        }
+        if area > 0, visible >= area * 0.99 { return rect }
+        return adjustToFit(rect, in: workArea(containing: rect))
     }
 
     // Chrome 終了: 終了したプロセスのウィンドウを掴んでいる slot の参照が無効になる。

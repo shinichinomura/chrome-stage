@@ -129,6 +129,18 @@ enum Selftest {
         check("再照合: 同じ位置に複数ウィンドウがある slot だけ見送る",
               partial[visibleID] == nil && partial[parked1ID] == 2 && partial[parked2ID] == 3)
 
+        // 8. ディスプレイ構成変更: 外したディスプレイ上の座標を画面内へ収める
+        if let primary = NSScreen.screens.first {
+            let height = primary.frame.height
+            let onScreen = CGRect(x: primary.frame.minX + 50, y: 60, width: 600, height: 400)
+            check("表示範囲内の rect は補正しない", StageController.fitToScreens(onScreen) == onScreen)
+            let gone = CGRect(x: primary.frame.maxX + 5000, y: -height, width: 1974, height: 1242)
+            let fitted = StageController.fitToScreens(gone)
+            check("外したディスプレイ上の rect が画面内へ収まる",
+                  fitted != gone && StageController.fitToScreens(fitted) == fitted)
+            check("構成の識別子を取得できる", !StageController.currentDisplaySignature().isEmpty)
+        }
+
         print(failures == 0 ? "== ALL PASS ==" : "== \(failures) FAILURE(S) ==")
         return failures == 0 ? 0 : 1
     }

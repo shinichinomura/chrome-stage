@@ -67,6 +67,12 @@ struct StageSessionRecord: Codable {
     var activeSlotID: UUID?
     var stageRect: CodableRect?
     var slots: [ChromeSlotRecord]
+
+    // stageRect を保存した時点のディスプレイ構成(識別子)と、構成ごとに覚えている stage rect。
+    // 1 画面 ⇄ 2 画面の切り替えで、ウィンドウを構成ごとの定位置へ自動で戻すために使う。
+    // 旧バージョンのセッションには無いため optional
+    var displaySignature: String?
+    var stageRectsByDisplays: [String: CodableRect]?
 }
 
 // セッションの JSON 永続化。

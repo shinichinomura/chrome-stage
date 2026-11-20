@@ -118,7 +118,7 @@ Because offscreen parking can strand a window off-screen if something goes wrong
 - **Unpark All** — restore every window from the menu bar or hotkey.
 - **Restore on quit** — all windows are restored when the app terminates (including on `SIGTERM`).
 - **Crash recovery** — parked windows are detected and restored on the next launch.
-- **Display-change handling** — parking coordinates are recomputed when the display configuration changes, and an off-screen stage rect is reset onto the main display.
+- **Display-change handling** — when displays are plugged or unplugged, the stage rect is remembered per display configuration. Going from two displays to one automatically moves and resizes the active window onto the remaining display (and a parked window is unparked into the visible area); plugging the second display back returns it to its previous place. Parking coordinates are recomputed for the new layout.
 - **Chrome-quit detection** — slots become `missing` when Chrome exits, remembering where each window was.
 - **Chrome relaunch recovery** — when Chrome comes back and restores its windows, they are matched to slots by geometry (Chrome restores each window at its saved position, pulled into the work area) and re-parked. An ambiguous match is left as `missing` rather than guessed, so a window is never labelled with the wrong profile.
 
