@@ -4,6 +4,8 @@
 
 **決定: 現行機能を維持し、Developer ID 署名・Apple 公証付きで GitHub Releases から配布する。** 以下の実機確認表は準備前の調査記録。現在の公開手順は [Developer ID 配布の手順](release/README.md) を参照。
 
+2026-11-20: [0.1.1 を一般公開](https://github.com/shinichinomura/chrome-stage/releases/tag/v0.1.1)(ディスプレイ構成変更への自動追従)。公開バイナリは `0c31b0e` / build `25`。0.1.0 と同じ手順で、Universal archive、Developer ID 署名、公証、staple、Gatekeeper、ZIP 展開後の署名とバージョンを確認した。2 画面 ⇄ 1 画面の動作は開発版で実機確認済み。
+
 2026-11-15: [0.1.0 を一般公開](https://github.com/shinichinomura/chrome-stage/releases/tag/v0.1.0)。公開バイナリは `b4b8e40` / build `22`。Universal archive、Developer ID 署名、公証、staple、Gatekeeper、ZIP 展開後の署名とバージョンを確認した。新規 Mac での初回 Accessibility 許可や Intel 実機での動作は今回未検証。
 
 ## 現状の判断
