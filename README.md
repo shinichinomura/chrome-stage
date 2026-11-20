@@ -82,7 +82,7 @@ Chrome Stage runs as a menu-bar app (`LSUIElement`) with no Dock icon; look for 
 
 現在の Accessibility API によるウィンドウ操作は、Mac App Store で必須の App Sandbox と非互換のため、Developer ID 署名と Apple の公証を使い、[GitHub Releases](https://github.com/shinichinomura/chrome-stage/releases) から配布しています。
 
-**[Chrome Stage 0.1.1 をダウンロード](https://github.com/shinichinomura/chrome-stage/releases/download/v0.1.1/ChromeStage-0.1.1.zip)** — macOS 26 以降、Apple Silicon / Intel 対応。[リリース情報と SHA-256](https://github.com/shinichinomura/chrome-stage/releases/tag/v0.1.1) も参照してください。
+**[Chrome Stage 0.2.0 をダウンロード](https://github.com/shinichinomura/chrome-stage/releases/download/v0.2.0/ChromeStage-0.2.0.zip)** — macOS 26 以降、Apple Silicon / Intel 対応。[リリース情報と SHA-256](https://github.com/shinichinomura/chrome-stage/releases/tag/v0.2.0) も参照してください。
 
 - 利用者向け: [インストールと操作方法](INSTALL.md) / [プライバシー](PRIVACY.md)
 - 開発者向け: [ビルド・署名・公証・公開の手順](release/README.md) / [App Store 対応の調査](DISTRIBUTION.md)
