@@ -141,6 +141,21 @@ enum Selftest {
             check("構成の識別子を取得できる", !StageController.currentDisplaySignature().isEmpty)
         }
 
+        // 9. 自動更新: バージョン比較・チェックサム解釈・署名要件(ネットワークは使わない)
+        check("バージョン比較: 新しい", UpdateService.isNewer("0.1.1", than: "0.1.0") && UpdateService.isNewer("0.10.0", than: "0.9.9"))
+        check("バージョン比較: 同じ・古いは更新しない",
+              !UpdateService.isNewer("0.1.0", than: "0.1.0") && !UpdateService.isNewer("0.1.0", than: "0.1.1")
+              && !UpdateService.isNewer("1.0", than: "1.0.0"))
+        check("バージョン比較: 不正な表記は更新しない",
+              !UpdateService.isNewer("1.0.0-beta", than: "0.1.0") && !UpdateService.isNewer("", than: "0.1.0")
+              && !UpdateService.isNewer("../1", than: "0.1.0"))
+        let hash = String(repeating: "ab", count: 32)
+        check("チェックサム解釈", UpdateService.parseChecksum("\(hash.uppercased())  ChromeStage-0.1.1.zip\n") == hash
+              && UpdateService.parseChecksum("xyz  file") == nil && UpdateService.parseChecksum("") == nil)
+        // 署名要件の構文が正しいこと(実際の署名検証は、公証済みアプリがあるときだけ行う)
+        var requirement: SecRequirement?
+        check("署名要件の構文", SecRequirementCreateWithString(UpdateService.requirementString as CFString, [], &requirement) == errSecSuccess)
+
         print(failures == 0 ? "== ALL PASS ==" : "== \(failures) FAILURE(S) ==")
         return failures == 0 ? 0 : 1
     }

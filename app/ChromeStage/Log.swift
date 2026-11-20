@@ -11,4 +11,5 @@ enum Log {
     static let ax = Logger(subsystem: subsystem, category: "ax")
     static let stage = Logger(subsystem: subsystem, category: "stage")
     static let recovery = Logger(subsystem: subsystem, category: "recovery")
+    static let update = Logger(subsystem: subsystem, category: "update")
 }

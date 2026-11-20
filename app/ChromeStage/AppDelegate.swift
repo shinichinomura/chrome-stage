@@ -10,12 +10,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlay: OverlayPanelController!
     private var hotKeys: HotKeyController!
     private var sigtermSource: DispatchSourceSignal?
+    private let updater = UpdateService.shared
 
     static func main() {
         // ヘッドレス動作確認モード(UI を起動しない)
         if CommandLine.arguments.contains("--selftest") {
             exit(Selftest.run())
         }
+        // 更新の確認(--check-update)と、置き換えて再起動まで行う実行(--update)
+        if CommandLine.arguments.contains("--check-update") { UpdateService.runCLI(install: false) }
+        if CommandLine.arguments.contains("--update") { UpdateService.runCLI(install: true) }
         // バージョン表示(どのビルドかを確認する用)
         if CommandLine.arguments.contains("--version") {
             print(AppVersion.current.details)
@@ -37,6 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         overlay = OverlayPanelController(stage: stage)
         overlay.show()
+
+        updater.onStateChange = { [weak self] in self?.refreshUpdateIndicator() }
+        updater.startPeriodicChecks()
 
         hotKeys = HotKeyController { [weak self] action in
             guard let stage = self?.stage else { return }
@@ -125,6 +132,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(.separator())
         }
 
+        // 更新の状態(インストール待ちはいちばん上に出して気づけるようにする)
+        switch updater.state {
+        case .ready(let prepared):
+            let item = NSMenuItem(
+                title: "Chrome Stage \(prepared.version) に更新して再起動",
+                action: #selector(installReadyUpdate),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu.addItem(item)
+            menu.addItem(.separator())
+        case .downloading(let version):
+            menu.addItem(NSMenuItem(title: "更新 \(version) をダウンロード中…", action: nil, keyEquivalent: ""))
+            menu.addItem(.separator())
+        default:
+            break
+        }
+
         // Slot 一覧
         if stage.slots.isEmpty {
             menu.addItem(NSMenuItem(title: "Slot が未登録", action: nil, keyEquivalent: ""))
@@ -195,6 +220,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let checkItem = NSMenuItem(title: "更新を確認…", action: #selector(checkForUpdates), keyEquivalent: "")
+        checkItem.target = self
+        switch updater.state {
+        case .checking, .downloading: checkItem.action = nil
+        default: break
+        }
+        menu.addItem(checkItem)
+
+        let autoItem = NSMenuItem(title: "自動で更新を確認", action: #selector(toggleAutoUpdateCheck), keyEquivalent: "")
+        autoItem.target = self
+        autoItem.state = updater.autoCheckEnabled ? .on : .off
+        menu.addItem(autoItem)
+
+        menu.addItem(.separator())
+
         // 動作中のビルドを確認できるようにする(差し替え後に古いプロセスが残っていないか等)
         let versionItem = NSMenuItem(
             title: "Chrome Stage \(AppVersion.current.summary)",
@@ -220,6 +260,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "Chrome Stage \(AppVersion.current.summary)",
             AppVersion.current.details + "\nプロセス: PID \(app.processIdentifier)(\(launched) 起動)"
         )
+    }
+
+    // MARK: - 更新
+
+    // 更新の準備ができたらメニューバーのアイコンと説明で知らせる
+    private func refreshUpdateIndicator() {
+        guard let button = statusItem?.button else { return }
+        if case .ready(let prepared) = updater.state {
+            button.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "Chrome Stage の更新あり")
+            button.toolTip = "Chrome Stage \(prepared.version) に更新できます"
+        } else {
+            button.image = NSImage(systemSymbolName: "square.on.square.dashed", accessibilityDescription: "Chrome Stage")
+            button.toolTip = nil
+        }
+    }
+
+    // 手動の確認: 結果をダイアログで返し、更新があれば検証まで済ませてから適用を確認する
+    @objc private func checkForUpdates() {
+        Task { @MainActor in
+            switch await updater.checkAndPrepare() {
+            case .upToDate:
+                showAlert("最新バージョンです", "Chrome Stage \(AppVersion.current.version) は最新です。")
+            case .failed(let message):
+                showAlert("更新を確認できませんでした", message)
+            case .ready(let prepared):
+                confirmInstall(prepared)
+            }
+        }
+    }
+
+    private func confirmInstall(_ prepared: UpdateService.Prepared) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Chrome Stage \(prepared.version) に更新できます"
+        alert.informativeText = "更新を検証済みです。更新して再起動すると、退避中のウィンドウはいったん画面内へ戻ります。"
+        alert.addButton(withTitle: "更新して再起動")
+        alert.addButton(withTitle: "あとで")
+        if alert.runModal() == .alertFirstButtonReturn { install(prepared) }
+    }
+
+    @objc private func installReadyUpdate() {
+        guard case .ready(let prepared) = updater.state else { return }
+        install(prepared)
+    }
+
+    private func install(_ prepared: UpdateService.Prepared) {
+        if let reason = updater.install(prepared) {
+            showAlert("更新できませんでした", reason)
+        }
+    }
+
+    @objc private func toggleAutoUpdateCheck() {
+        updater.autoCheckEnabled.toggle()
     }
 
     // MARK: - Accessibility 権限

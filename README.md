@@ -35,6 +35,7 @@ This is deliberately *not* the "physically stack every window at the same coordi
 - Session persistence to `~/Library/Application Support/ChromeStage/session.json`.
 - **Chrome relaunch recovery**: when Chrome restarts (e.g. "Relaunch to update"), the windows it restores are matched back to their slots and re-parked automatically.
 - **Safety features** (see below): `Unpark All`, restore-on-quit, crash recovery, and display-change handling.
+- **Self-update**: checks GitHub Releases at launch and every 24 hours (toggle in the menu), downloads the new version, and verifies it before offering "Update and restart". The download is accepted only if it carries this app's Developer ID signature (same Team ID), is notarized, matches the release version, and is newer than the running one. No session data is sent; see [PRIVACY.md](PRIVACY.md).
 - Zero third-party dependencies. Global hotkeys use Carbon `RegisterEventHotKey` directly.
 
 ## Requirements
@@ -65,6 +66,12 @@ There is also a headless self-test that exercises detection → AX matching → 
 
 ```bash
 /path/to/ChromeStage.app/Contents/MacOS/ChromeStage --selftest
+```
+
+The updater can also be exercised headlessly. `--check-update` checks, downloads, and verifies the latest release (it changes nothing); `--update` additionally replaces the app at its current location and relaunches it (refused for builds run from Xcode's DerivedData):
+
+```bash
+/path/to/ChromeStage.app/Contents/MacOS/ChromeStage --check-update
 ```
 
 On first launch, macOS will ask for Accessibility permission. Grant it in **System Settings → Privacy & Security → Accessibility**, then the app will pick it up automatically.
@@ -162,6 +169,7 @@ app/ChromeStage/          Swift / AppKit sources
   HotKeyController.swift     Global hotkeys via Carbon
   AccessibilityPermission   Permission check & prompt
   Selftest.swift            Headless --selftest mode
+  UpdateService.swift       Self-update: check, download, verify (signature/notarization), replace, relaunch
   AppVersion.swift          Running build identity (version, git commit, build date)
   Log.swift                 OSLog wrappers
 spikes/                   Standalone verification experiments
